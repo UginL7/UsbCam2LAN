@@ -87,7 +87,6 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 		unsigned char U = ((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
 		unsigned char V = ((112 * R - 94 * G - 18 * B + 128) >> 8) + 128;
 
-
 		//YUYV
 		if (i % 2 == 0)
 		{
