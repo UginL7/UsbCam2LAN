@@ -421,45 +421,61 @@ int main()
 	return 0;
 #else
 	char pOriginal[230400] = { 0 };
-	FILE *pFile = fopen("red240.bmp", "rb");
+	FILE *pFile = fopen("bike240.bmp", "rb");
 	rewind(pFile);
 	fseek(pFile, 54, SEEK_SET);
-	size_t result= fread(pOriginal, sizeof(char), 230400, pFile);
+	size_t nBuffSize= fread(pOriginal, sizeof(char), 230400, pFile);
 	fclose(pFile);
 
 	unsigned long nCounter = 0;
 	unsigned long dwUYVYSize = 0;
 	unsigned char *pYUYVBuff;
-	pYUYVBuff = (unsigned char*)malloc(320 * 240 * 2);
-	memset(pYUYVBuff, 0, 320 * 240 * 2);
-	for (int i = 0; i < result; i+=3)
+	int heigth = 240;
+	int width = 320;
+	int byteColor = 2;
+	int pos = -1 * width;
+	int line = 1;
+	pYUYVBuff = (unsigned char*)malloc(width * heigth * byteColor);
+	memset(pYUYVBuff, 0, width * heigth * byteColor);
+	
+
+	for (int i = 0; i < nBuffSize; i += 3)
 	{
 		unsigned char B = pOriginal[i];
 		unsigned char G = pOriginal[i + 1];
 		unsigned char R = pOriginal[i + 2];
-		
+
 		unsigned char Y = ((66 * R + 129 * G + 25 * B + 128) >> 8) + 16;
 		unsigned char U = ((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
 		unsigned char V = ((112 * R - 94 * G - 18 * B + 128) >> 8) + 128;
 
-
 		//YUYV
-		if (i%2 == 0)
+		if (i % 2 == 0)
 		{
-		
-			pYUYVBuff[dwUYVYSize] = Y;
-			pYUYVBuff[dwUYVYSize + 1] = U;
-			pYUYVBuff[dwUYVYSize + 2] = Y;
+			// Запись строк снизу вверх. Для того, чтобы получить не перевернутую картинку
+			pYUYVBuff[pos + (byteColor * heigth - line) * width] = Y;
+			pYUYVBuff[pos + 1 + (byteColor * heigth - line) * width] = U;
+			pYUYVBuff[pos + 2 + (byteColor * heigth - line) * width] = Y;
 			dwUYVYSize += 3;
+			pos += 3;
 		}
 		else
-		{	
-			pYUYVBuff[dwUYVYSize] = V;	
+		{
+			pYUYVBuff[pos + (byteColor * heigth - line) * width] = V;
 			dwUYVYSize++;
+			pos++;
+		}
+
+		if (pos == width)
+		{
+			pos = 0;
+			line++;
+
 		}
 	}
 	
-	HANDLE hDevice = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	HANDLE hDevice;
+	hDevice = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (hDevice == INVALID_HANDLE_VALUE)
 	{
 		DWORD dwError = GetLastError();
@@ -467,8 +483,8 @@ int main()
 	}
 
 	do {
-		result = DeviceIoControl(hDevice, IOCTL_SEND_BUFFER_DATA, pYUYVBuff, dwUYVYSize, NULL, 0, NULL, NULL);
-		if (result == false)
+		nBuffSize = DeviceIoControl(hDevice, IOCTL_SEND_BUFFER_DATA, pYUYVBuff, dwUYVYSize, NULL, 0, NULL, NULL);
+		if (nBuffSize == false)
 		{
 			DWORD dwErr = GetLastError();
 			printf("send not complete - buffer size = %d\nError code = %d\n", dwUYVYSize, dwErr);

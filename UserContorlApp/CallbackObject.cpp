@@ -63,13 +63,21 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	bool result;
 	DWORD dwOutputBufferSize;	
 	DWORD nBuffSize = pSample->GetActualDataLength();
-	BYTE *pBuf = NULL;
-	hr = pSample->GetPointer(&pBuf);
+	BYTE *pOriginal = NULL;
+	hr = pSample->GetPointer(&pOriginal);
 
+	unsigned long nCounter = 0;
 	unsigned char *pYUYVBuff;
-	pYUYVBuff = (unsigned char*)malloc(320 * 240 * 2);
+	int heigth = 240;
+	int width = 320;
+	int byteColor = 2; // при умножении на 8(бит) получается глубига цвета
+	int pos = -1 * width;
+	int line = 1;
+	
+	pYUYVBuff = (unsigned char*)malloc(width * heigth * byteColor);
+	memset(pYUYVBuff, 0, width * heigth * byteColor);
 
-	if (nBuffSize <= 0 || pBuf == NULL)
+	if (nBuffSize <= 0 || pOriginal == NULL)
 	{
 		return E_UNEXPECTED;
 	}
@@ -77,11 +85,11 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	//////////////////////////////////////////////////////////////////////////
 	// модификация потока на любой лад
 	//////////////////////////////////////////////////////////////////////////
-	for (int i = 0; i < nBuffSize; i+=3)
+	for (int i = 0; i < nBuffSize; i += 3)
 	{
-		unsigned char B = pBuf[i];
-		unsigned char G = pBuf[i + 1];
-		unsigned char R = pBuf[i + 2];
+		unsigned char B = pOriginal[i];
+		unsigned char G = pOriginal[i + 1];
+		unsigned char R = pOriginal[i + 2];
 
 		unsigned char Y = ((66 * R + 129 * G + 25 * B + 128) >> 8) + 16;
 		unsigned char U = ((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
@@ -90,16 +98,25 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 		//YUYV
 		if (i % 2 == 0)
 		{
-
-			pYUYVBuff[dwUYVYSize] = Y;
-			pYUYVBuff[dwUYVYSize + 1] = U;
-			pYUYVBuff[dwUYVYSize + 2] = Y;
+			// Запись строк снизу вверх. Для того, чтобы получить не перевернутую картинку
+			pYUYVBuff[pos + (byteColor * heigth - line) * width] = Y;
+			pYUYVBuff[pos + 1 + (byteColor * heigth - line) * width] = U;
+			pYUYVBuff[pos + 2 + (byteColor * heigth - line) * width] = Y;
 			dwUYVYSize += 3;
+			pos += 3;
 		}
 		else
 		{
-			pYUYVBuff[dwUYVYSize] = V;
+			pYUYVBuff[pos + (byteColor * heigth - line) * width] = V;
 			dwUYVYSize++;
+			pos++;
+		}
+
+		if (pos == width)
+		{
+			pos = 0;
+			line++;
+
 		}
 	}
 // 	nCounter++;
@@ -114,7 +131,7 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	
 	if (hDevice != INVALID_HANDLE_VALUE)
 	{
-		result = DeviceIoControl(hDevice, IOCTL_SEND_BUFFER_DATA, pBuf, dwUYVYSize, NULL, 0, NULL, NULL);
+		result = DeviceIoControl(hDevice, IOCTL_SEND_BUFFER_DATA, pYUYVBuff, dwUYVYSize, NULL, 0, NULL, NULL);
 		if (result == false)
 		{
 			DWORD dwErr = GetLastError();
