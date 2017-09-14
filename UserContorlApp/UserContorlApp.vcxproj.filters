@@ -21,12 +21,24 @@
     <ClCompile Include="CallbackObject.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="EnumDevice.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CallbackObject.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SampleGrabber.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EnumDevice.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="structures.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -4,21 +4,22 @@
 #include <initguid.h>
 #include <dvdmedia.h>
 #include <wmsdkidl.h>
+#include "EnumDevice.h"
 #include "SampleGrabber.h"
 #include "CallbackObject.h"
+#include <SetupAPI.h>
 
+#pragma comment (lib, "setupapi.lib")
 #pragma comment(lib, "Strmiids.lib")
 #pragma comment(lib, "Quartz.lib")
 
-#define VBOX TRUE
+#define VBOX FALSE
 
 #if VBOX
 WCHAR wszCamName[] = L"VirtualBox Webcam - Logitech QuickCam Pro 5000";
 #else
 WCHAR wszCamName[] = L"Logitech QuickCam Pro 5000";
 #endif
-
-
 
 static
 const
@@ -28,14 +29,30 @@ CLSID CLSID_NullRenderer = { 0xC1F400A4, 0x3F08, 0x11d3,{ 0x9F, 0x0B, 0x00, 0x60
 DEFINE_GUID(CLSID_VideoCaptureSource,
 	0x860BB310, 0x5D01, 0x11D0, 0xBD, 0x3B, 0x00, 0xA0, 0xC9, 0x11, 0xCE, 0x86);
 
+/*
 // {C1F400A0-3F08-11D3-9F0B-006008039E37}
 DEFINE_GUID(CLSID_SampleGrabber, 
-	0xC1F400A0, 0x3F08, 0x11D3, 0x9F, 0x0B, 0x00, 0x60, 0x08, 0x03, 0x9E, 0x37); //qedit.dll
+	0xC1F400A0, 0x3F08, 0x11D3, 0x9F, 0x0B, 0x00, 0x60, 0x08, 0x03, 0x9E, 0x37); //qedit.dll*/
 
 // {B87BEB7B-8D29-423F-AE4D-6582C10175AC}
 DEFINE_GUID(CLSID_VideoRenderer,
 	0xB87BEB7B, 0x8D29, 0x423F, 0xAE, 0x4D, 0x65, 0x82, 0xC1, 0x01, 0x75, 0xAC); //quartz.dll
 
+void GetLastErrorMessage(char *szErrText)
+{
+	LPSTR szBuff = nullptr;
+	DWORD dwErrCode = GetLastError();
+	size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL, dwErrCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&szBuff, 0, NULL);
+	sprintf(szErrText, "\t ==> Error\n\t\tCode = %d(0x%x)   Message:%s", dwErrCode, dwErrCode, szBuff);
+
+	LocalFree(szBuff);
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+///                  Отправка потока с камеры в драйвер                ///
+//////////////////////////////////////////////////////////////////////////
 
 bool hrcheck(HRESULT hr, char *errText)
 {
@@ -137,7 +154,6 @@ CComPtr<IPin> GetPin(IBaseFilter *pFilter, LPCOLESTR pinName)
 
 HRESULT BuildGraph(IGraphBuilder *pGraph)
 {
-	CCallbackObject* pCBObject;
 	HRESULT hr = S_OK;
 	// Указатель на ICaptureGraphBuilder2 и добваление его в построитель графа
 	CComPtr<ICaptureGraphBuilder2> pBuilder;
@@ -229,9 +245,8 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	/////////////////////////
 	CComQIPtr<ISampleGrabber, &IID_ISampleGrabber> pSampleGrabber_isg(pSGrabber);
 	// Вызов ф-ции (0 - SampleCB, 1 - BufferCB) для работы с потоком
-	hr = pSampleGrabber_isg->SetCallback(pCBObject = new CCallbackObject(), 0);
+	hr = pSampleGrabber_isg->SetCallback(new CCallbackObject, 0);
 	CHECK_HR(hr, _T("Can't set callback"));
-	pCBObject->ConfigureDriver(&pSG_video_header_format);
 
 	hr = pGraph->ConnectDirect(GetPin(pSGrabber, L"Output"), GetPin(pColorSpaceConverter, L"Input"), NULL);
 	CHECK_HR(hr, _T("Can't connect SmapleGrabber_Out CSC_In"));
@@ -243,188 +258,14 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	return S_OK;
 }
 
-// В этой ф-ции что-то портит буфер! Она не работает, как надо
-// При вызове callback-функции приходят в буфере только 0
-HRESULT BuildGraph_StreamControl(IGraphBuilder *pGraph)
+//ТЕстовая ф-ция для трансляции BMP файлаа в драйвер
+void TranslateBMPFile()
 {
-	
-	HRESULT hr = S_OK;
-
-	// Создание основного графа
-	CComPtr<ICaptureGraphBuilder2> pBuilder;
-	hr = pBuilder.CoCreateInstance(CLSID_CaptureGraphBuilder2);
-	CHECK_HR(hr, "Can't create Capture Graph Builder");
-	// установка фильтра графа строителя :)
-	hr = pBuilder->SetFiltergraph(pGraph);
-	CHECK_HR(hr, "Can't SetFiltergraph");
-
-	// Подключение камеры и добавления фильтра камеры
-	CComPtr<IBaseFilter> pCamera = CreateFilterByName(wszCamName, CLSID_VideoCaptureSource);
-	hr = pGraph->AddFilter(pCamera, wszCamName);
-	CHECK_HR(hr, _T("Can't add USB2.0 Camera to graph"));
-
-	// Заполнения структур для тип данных и заголовка формата
-	AM_MEDIA_TYPE pSG_media_type;
-	ZeroMemory(&pSG_media_type, sizeof(AM_MEDIA_TYPE));
-	pSG_media_type.majortype = MEDIATYPE_Video;
-#if VBOX
-	pSG_media_type.subtype = MEDIASUBTYPE_MJPG;	
-#else
-	pSG_media_type.subtype = WMMEDIASUBTYPE_I420;
-#endif
-	pSG_media_type.formattype = FORMAT_VideoInfo;
-	pSG_media_type.bFixedSizeSamples = TRUE;
-	pSG_media_type.cbFormat = 88;
-	pSG_media_type.lSampleSize = 115200;
-	pSG_media_type.bTemporalCompression = FALSE;
-
-	VIDEOINFOHEADER pSG_video_header;
-	ZeroMemory(&pSG_video_header, sizeof(VIDEOINFOHEADER));
-	pSG_video_header.bmiHeader.biSize = 40;
-	pSG_video_header.bmiHeader.biWidth = 320;
-	pSG_video_header.bmiHeader.biHeight = 240;
-	pSG_video_header.bmiHeader.biPlanes = 1;
-	pSG_video_header.bmiHeader.biBitCount = 12;
-#if VBOX
-	pSG_video_header.bmiHeader.biCompression = 'MJPG';	
-#else
-	pSG_video_header.bmiHeader.biCompression = 808596553;
-#endif
-	
-	pSG_video_header.bmiHeader.biSizeImage = 115200;
-	pSG_media_type.pbFormat = (BYTE *)&pSG_video_header;
-
-	// получение пина захвата и установка формата для него
-	CComQIPtr<IAMStreamConfig, &IID_IAMStreamConfig> pSG_MediaControl(GetPin(pCamera, L"Запись"));
-	hr = pSG_MediaControl->SetFormat(&pSG_media_type);
-	CHECK_HR(hr, "Can't set format");
-
-	// получение интерфейса декомпрессора
-	if (pSG_video_header.bmiHeader.biCompression == 'MJPG')
-	{
-		// тут надо сделать switch под разные типы декопрессоров
-		CComPtr<IBaseFilter> pDecompressorMJPEG;
-		hr = pDecompressorMJPEG.CoCreateInstance(CLSID_MjpegDec);
-		CHECK_HR(hr, "Can't create DecompressorMJPEG");
-		hr = pGraph->AddFilter(pDecompressorMJPEG, L"MJPEG Decompressor");
-		CHECK_HR(hr, _T("Can't add MJPEG Decompressor to graph"));
-
-		// Подключение сразу на выход с камеры
-		hr = pGraph->ConnectDirect(GetPin(pCamera, L"Запись"), GetPin(pDecompressorMJPEG, L"XForm In"), NULL);
-		CHECK_HR(hr, _T("Can't connect Camera_Out and MJPEG_Decompressor_In"));
-	}
-
-
-	// Получение интрефейса для работы с потоком и добавление его фильтра в граф
-	CComPtr<IBaseFilter> pSampleGrabber;
-	hr = pSampleGrabber.CoCreateInstance(CLSID_SampleGrabber);
-	CHECK_HR(hr, "Can't create SampleGrabber");
-	hr = pGraph->AddFilter(pSampleGrabber, L"SampleGrabber");
-	CHECK_HR(hr, _T("Can't add SampleGrabber to graph"));
-
-	/////////////////////////
-	// Вызов callback - работа  спотоком
-	/////////////////////////
-	CComQIPtr<ISampleGrabber, &IID_ISampleGrabber> pSampleGrabber_isg(pSampleGrabber);
-	// Вызов ф-ции (0 - SampleCB, 1 - BufferCB) для работы с потоком
-	hr = pSampleGrabber_isg->SetCallback(new CCallbackObject(), 0);
-	CHECK_HR(hr, _T("Can't set callback"));
-
-	
-	
-	// подключение камеры к фильтру
-	hr = pBuilder->RenderStream(NULL, NULL, pCamera, NULL, pSampleGrabber);
-	CHECK_HR(hr, _T("Can't render stream to SampleGrabber"));
-	
-	
-	// отрисовка видео в окне
-	CComPtr<IBaseFilter> pVideoRenderer;
-	hr = pVideoRenderer.CoCreateInstance(CLSID_VideoRenderer);
-	CHECK_HR(hr, _T("Can't create VideoRenderer"));
-	hr = pGraph->AddFilter(pVideoRenderer, L"VideoRenderer");
-	// Если последний параметр поставить NULL, то тоже будет работать. Просто подхватит дефолтный рендерер
-	hr = pBuilder->RenderStream(NULL, NULL, pSampleGrabber, NULL, pVideoRenderer);
-	CHECK_HR(hr, _T("Can't render stream from SampleGrabber"));
-	
-
-	/*
-	// Без вывода в окно
-	CComPtr<IBaseFilter> pNullRenderer;
-	hr = pNullRenderer.CoCreateInstance(CLSID_NullRenderer);
-	CHECK_HR(hr, _T("Can't create NullRenderer"));
-	hr = pGraph->AddFilter(pNullRenderer, L"NullRenderer");
-	
-	hr = pBuilder->RenderStream(NULL, NULL, pSampleGrabber, NULL, pNullRenderer);
-	CHECK_HR(hr, _T("Can't render stream from SampleGrabber"));
-	*/
-	return S_OK;
-}
-
-int main()
-{
-#if VBOX
-	SetConsoleCP(1251);
-	SetConsoleOutputCP(1251);
-	CoInitialize(NULL);
-	CComPtr<IGraphBuilder> graph;
-	graph.CoCreateInstance(CLSID_FilterGraph);
-
-#if VBOX
-	printf("In Virtual Box\n");
-#else
-	printf("In PC\n");	
-#endif
-	wprintf(L"Camera Name = %s\n", wszCamName);
-
-	printf("Building graph...\n");
-	HRESULT hr = BuildGraph(graph);
-	//HRESULT hr = BuildGraph_StreamControl(graph);
-	if (hr == S_OK)
-	{
-		printf("Running");
-		CComQIPtr<IMediaControl, &IID_IMediaControl> mediaControl(graph);
-		hr = mediaControl->Run();
-		CHECK_HR(hr, "Can't run");
-		CComQIPtr<IMediaEvent, &IID_IMediaEvent> mediaEvent(graph);
-		bool bStop = false;
-		MSG msg;
-		while (!bStop)
-		{
-			long ev = 0;
-			long p1 = 0;
-			long p2 = 0;
-//			printf(".");
-			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-			{
-				DispatchMessage(&msg);
-			}
-			while (mediaEvent->GetEvent(&ev, &p1, &p2, 0) == S_OK)
-			{
-				printf("Event ID = %x\n", ev);
-				if (ev == EC_COMPLETE || ev == EC_USERABORT)
-				{
-					printf("Done!\n");
-					bStop = true;
-				}
-				else if (ev == EC_ERRORABORT)
-				{
-					printf("An error occured: HRESULT=%x\n", p1);
-					mediaControl->Stop();
-					bStop = true;
-				}
-				mediaEvent->FreeEventParams(ev, p1, p2);
-			}
-		}
-	}
-	CoUninitialize();
-	system("pause");
-	return 0;
-#else
 	char pOriginal[230400] = { 0 };
 	FILE *pFile = fopen("bike240.bmp", "rb");
 	rewind(pFile);
 	fseek(pFile, 54, SEEK_SET);
-	size_t nBuffSize= fread(pOriginal, sizeof(char), 230400, pFile);
+	size_t nBuffSize = fread(pOriginal, sizeof(char), 230400, pFile);
 	fclose(pFile);
 
 	unsigned long nCounter = 0;
@@ -437,7 +278,7 @@ int main()
 	int line = 1;
 	pYUYVBuff = (unsigned char*)malloc(width * heigth * byteColor);
 	memset(pYUYVBuff, 0, width * heigth * byteColor);
-	
+
 
 	for (int i = 0; i < nBuffSize; i += 3)
 	{
@@ -473,7 +314,7 @@ int main()
 
 		}
 	}
-	
+
 	HANDLE hDevice;
 	hDevice = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (hDevice == INVALID_HANDLE_VALUE)
@@ -498,5 +339,330 @@ int main()
 	} while (nCounter < 30);
 
 	free(pYUYVBuff);
+}
+
+// Функция транслирующая в драйвер видео поток с камеры 
+int TranslateWebCamStream()
+{
+	CoInitialize(NULL);
+	CComPtr<IGraphBuilder> graph;
+	graph.CoCreateInstance(CLSID_FilterGraph);
+
+#if VBOX
+	printf("In Virtual Box\n");
+#else
+	printf("In PC\n");
 #endif
+	wprintf(L"Camera Name = %s\n", wszCamName);
+
+	printf("Building graph...\n");
+	HRESULT hr = BuildGraph(graph);
+	//HRESULT hr = BuildGraph_StreamControl(graph);
+	if (hr == S_OK)
+	{
+		printf("Running");
+		CComQIPtr<IMediaControl, &IID_IMediaControl> mediaControl(graph);
+		hr = mediaControl->Run();
+		CHECK_HR(hr, "Can't run");
+		CComQIPtr<IMediaEvent, &IID_IMediaEvent> mediaEvent(graph);
+		bool bStop = false;
+		MSG msg;
+		while (!bStop)
+		{
+			long ev = 0;
+			long p1 = 0;
+			long p2 = 0;
+			//			printf(".");
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				DispatchMessage(&msg);
+			}
+			while (mediaEvent->GetEvent(&ev, &p1, &p2, 0) == S_OK)
+			{
+				printf("Event ID = %x\n", ev);
+				if (ev == EC_COMPLETE || ev == EC_USERABORT)
+				{
+					printf("Done!\n");
+					bStop = true;
+				}
+				else if (ev == EC_ERRORABORT)
+				{
+					printf("An error occured: HRESULT=%x\n", p1);
+					mediaControl->Stop();
+					bStop = true;
+				}
+				mediaEvent->FreeEventParams(ev, p1, p2);
+			}
+		}
+	}
+	CoUninitialize();
+
+	system("pause");
+	return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////
+///           Отправка разрешений и форматов сжатия в драйвер          ///
+//////////////////////////////////////////////////////////////////////////
+
+// Отправка разрешения в драйвер 
+void SendBufferToDriver(void * buffRes, unsigned long ulSize)
+{
+	HANDLE hDriverOpen = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hDriverOpen == INVALID_HANDLE_VALUE)
+	{
+		DWORD dwError = GetLastError();
+		CloseHandle(hDriverOpen);
+	}
+
+	bool result = DeviceIoControl(hDriverOpen, IOCTL_SEND_BUFFER_FORMAT, buffRes, ulSize, NULL, 0, NULL, NULL);
+	if (result == false)
+	{
+		DWORD dwErr = GetLastError();
+		printf("send not complete - buffer size = %d\nError code = %d\n", ulSize, dwErr);
+	}
+	
+	CloseHandle(hDriverOpen);
+}
+
+
+// Перезагрузка драйвера
+void RestartDevice(char *szSvcRestart)
+{
+	int i = 0;
+	BOOL bRes = FALSE;
+	DWORD dwBuffSize = 512;
+	char szSvcName[512] = { 0 };
+	char szErrBuff[1024] = { 0 };
+
+	DWORD numGuids = 0;
+	DWORD reqGuids = 16;
+	LPGUID guids = new GUID[reqGuids];
+	bRes = SetupDiClassGuidsFromName("Media", guids, reqGuids, &numGuids);
+	if (bRes == FALSE)
+	{
+		GetLastErrorMessage(szErrBuff);
+		OutputDebugString(szErrBuff);
+		return;
+	}
+
+	for (int i = 0; i < numGuids; i++)
+	{
+		SP_PROPCHANGE_PARAMS spPropChangeParam;
+		spPropChangeParam.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+		spPropChangeParam.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+		spPropChangeParam.Scope = DICS_FLAG_CONFIGSPECIFIC;
+		spPropChangeParam.StateChange = DICS_PROPCHANGE;
+		spPropChangeParam.HwProfile = 0;
+
+		HDEVINFO hDevInfo = SetupDiGetClassDevs(&guids[i], NULL, NULL, DIGCF_PRESENT);
+		SP_DEVINFO_DATA spDevInfoData;
+		spDevInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+		while (SetupDiEnumDeviceInfo(hDevInfo, i, &spDevInfoData) == TRUE)
+		{
+
+			bRes = SetupDiGetDeviceRegistryProperty(hDevInfo, &spDevInfoData, SPDRP_SERVICE, NULL, (PBYTE)szSvcName, dwBuffSize, &dwBuffSize);
+			if (bRes == FALSE)
+			{
+				GetLastErrorMessage(szErrBuff);
+				OutputDebugString(szErrBuff);
+				break;
+			}
+			if (strcmp(szSvcName, szSvcRestart) == 0)
+			{
+				bRes = SetupDiSetClassInstallParams(hDevInfo, &spDevInfoData, &spPropChangeParam.ClassInstallHeader, sizeof(spPropChangeParam));
+				if (bRes == FALSE)
+				{
+					GetLastErrorMessage(szErrBuff);
+					OutputDebugString(szErrBuff);
+					break;
+				}
+				bRes = SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, hDevInfo, &spDevInfoData);
+				if (bRes == FALSE)
+				{
+					GetLastErrorMessage(szErrBuff);
+					OutputDebugString(szErrBuff);
+					break;
+				}
+				break;
+			}
+			i++;
+		}
+
+		SetupDiDestroyDeviceInfoList(hDevInfo);
+	}
+	delete guids;
+}
+
+// Получение разрешений форматов 
+int GetCameraResolution()
+{
+	device_param_info *pAvailableDevices = nullptr;
+	device_param_info *pDecompressor = nullptr;
+	device_param_info *pColorSC = nullptr;
+	device_param_info *pRenderer = nullptr;
+	camera_frame_format_info *pAvailableResolution = nullptr;
+	device_param_info DevInfo;
+	camera_frame_format_info FrameRes;
+	void *pResOriginal;
+	void *pDevOriginal;
+	int nSizeOfDeviceArray = 0;
+	int nSizeOfResolutionArray = 0;
+	int nSizeNeeded = 0;
+	HRESULT hr;
+	CEnumDevice *pEnumDevice = nullptr;
+	int nCameraChoise = 0;
+	int nResolutionChoise = 0;
+	int nRet = 0;
+
+	while (true)
+	{
+		hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+		if (hr != S_OK)
+		{
+			printf("CoInititializeEx error");
+			nRet = -1;
+			break;
+		}
+
+		pEnumDevice = new CEnumDevice();
+
+		// получение энумератора камер(устройств видео захвата)
+		hr = pEnumDevice->GetClassEnumerator(CLSID_VideoInputDeviceCategory);
+		if (hr != S_OK)
+		{
+			printf("GetClassEnumerator error");
+			nRet = -1;
+			break;
+		}
+
+		// Получение количества доступных камер
+		nSizeOfDeviceArray = pEnumDevice->GetDeviceFriendlyName(nullptr);
+		if (nSizeOfDeviceArray == 0)
+		{
+			printf("GetDeviceFriendlyName error");
+			nRet = -1;
+			break;
+		}
+
+		pAvailableDevices = (device_param_info *)malloc(nSizeOfDeviceArray * sizeof(device_param_info));
+		if (pAvailableDevices == nullptr)
+		{
+			printf("malloc device_param_info error");
+			nRet = -1;
+			break;
+		}
+		pDevOriginal = pAvailableDevices;
+
+		// Перечисление доступных камер
+		memset(pAvailableDevices, 0, nSizeOfDeviceArray * sizeof(device_param_info));
+		pEnumDevice->GetDeviceFriendlyName(pAvailableDevices);
+		for (int i = 0; i < nSizeOfDeviceArray; i++)
+		{
+			DevInfo = pAvailableDevices[0];
+			printf("%d)\tname = %s\n\n", i + 1, DevInfo.szName);
+
+			printf("\n\n=================================================\n\n");
+			pAvailableDevices++;
+		}
+
+		// выбор камеры для работы
+		printf("Input camera number : ");
+		scanf_s("%d", &nCameraChoise);
+		pAvailableDevices = (device_param_info*)pDevOriginal + nCameraChoise - 1;
+		DevInfo = pAvailableDevices[0];
+
+		// Получение количества разрешений для выбранной камеры 
+		nSizeOfResolutionArray = pEnumDevice->GetDeviceAvailableResolution(nullptr, DevInfo.pBaseFilter);
+		pAvailableResolution = (camera_frame_format_info *)malloc(sizeof(camera_frame_format_info) * nSizeOfResolutionArray);
+		if (pAvailableResolution == nullptr)
+		{
+			printf("malloc camera_frame_format_info error");
+			nRet = -1;
+			break;
+		}
+		pResOriginal = pAvailableResolution;
+
+		// Перечисление для выбранной камеры разрешений и форматов картинки
+		memset(pAvailableResolution, 0, nSizeOfResolutionArray * sizeof(camera_frame_format_info));
+		pEnumDevice->GetDeviceAvailableResolution(pAvailableResolution, DevInfo.pBaseFilter);
+		for (int i = 0; i < nSizeOfResolutionArray; i++)
+		{
+			FrameRes = pAvailableResolution[0];
+			printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", i + 1, FrameRes.image_size.ulWidth, FrameRes.image_size.ulHeight, FrameRes.image_size.usBitCount, FrameRes.szFormat, FrameRes.szVIH);
+			pAvailableResolution++;
+		}
+
+		// выбор разрешения для работы
+		printf("Input resolution number : ");
+		scanf_s("%d", &nResolutionChoise);
+		pAvailableResolution = (camera_frame_format_info*)pResOriginal + nResolutionChoise - 1;
+		FrameRes = pAvailableResolution[0];
+
+		// отправка данных в драйвер
+		pAvailableResolution = (camera_frame_format_info*)pResOriginal;
+		SendBufferToDriver(pAvailableResolution, nSizeOfResolutionArray * sizeof(camera_frame_format_info));
+		RestartDevice("avshws");
+
+
+		printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", nResolutionChoise, FrameRes.image_size.ulWidth, FrameRes.image_size.ulHeight, FrameRes.image_size.usBitCount, FrameRes.szFormat, FrameRes.szVIH);
+		break;
+	}
+
+	if (pDecompressor != nullptr)
+	{
+		pDecompressor->pBaseFilter->Release();
+		free(pDecompressor);
+	}
+	if (pColorSC != nullptr)
+	{
+		pColorSC->pBaseFilter->Release();
+		free(pColorSC);
+	}
+	if (pRenderer != nullptr)
+	{
+		pRenderer->pBaseFilter->Release();
+		free(pRenderer);
+	}
+
+	if (pAvailableResolution != nullptr)
+	{
+		pAvailableResolution = (camera_frame_format_info*)pResOriginal;
+		free(pAvailableResolution);
+	}
+
+	if (pAvailableDevices != nullptr)
+	{
+		pAvailableDevices = (device_param_info *)pDevOriginal;
+		// Освобождение ресурсов
+		for (int i = 0; i < nSizeOfDeviceArray; i++)
+		{
+			DevInfo = pAvailableDevices[0];
+			DevInfo.pBaseFilter->Release();
+			pAvailableDevices++;
+		}
+		pAvailableDevices = (device_param_info *)pDevOriginal;
+		free(pAvailableDevices);
+	}
+
+	if (pEnumDevice != nullptr)
+	{
+		delete pEnumDevice;
+	}
+
+	CoUninitialize();
+	return nRet;
+}
+
+
+
+int main()
+{
+// 	SetConsoleCP(1251);
+// 	SetConsoleOutputCP(1251);
+
+	int nRet = 0;
+	nRet = GetCameraResolution();
+	return nRet;
 }

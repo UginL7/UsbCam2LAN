@@ -200,3 +200,10 @@ CaptureFilterDescriptor = {
     NULL,
     NULL                                    // Component ID
 };
+
+
+PKSFILTER_DESCRIPTOR
+pCaptureFilterDescriptorFromCamera = NULL;
+
+PKSPIN_DESCRIPTOR_EX
+pCaptureFilterPinDescriptorsFromCamera = NULL;

@@ -14,6 +14,10 @@ CCallbackObject::CCallbackObject()
 
 CCallbackObject::~CCallbackObject()
 {
+	if (hDevice != INVALID_HANDLE_VALUE)
+	{
+		CloseHandle(hDevice);
+	}
 }
 
 STDMETHODIMP CCallbackObject::QueryInterface(REFIID riid, void **ppv)
@@ -40,12 +44,9 @@ STDMETHODIMP_(ULONG) CCallbackObject::CCallbackObject::Release()
 {
 	InterlockedDecrement(&m_Ref);
 	if (m_Ref == 0)
-	{
+	{ 
 		delete this;
-		if (hDevice != INVALID_HANDLE_VALUE)
-		{
-			CloseHandle(hDevice);
-		}
+		
 		return 0;
 	}
 	else
@@ -66,7 +67,6 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	BYTE *pOriginal = NULL;
 	hr = pSample->GetPointer(&pOriginal);
 
-	unsigned long nCounter = 0;
 	unsigned char *pYUYVBuff;
 	int heigth = 240;
 	int width = 320;
@@ -156,7 +156,7 @@ STDMETHODIMP CCallbackObject::BufferCB(double SampleTime, BYTE *pBuffer, long Bu
 void CCallbackObject::ConfigureDriver(VIDEOINFOHEADER *pVHeader)
 {
 
-	if (hDevice != INVALID_HANDLE_VALUE)
+	/*if (hDevice != INVALID_HANDLE_VALUE)
 	{
 		bool result = DeviceIoControl(hDevice, IOCTL_SEND_BUFFER_SIZE, pVHeader, sizeof(VIDEOINFOHEADER), NULL, 0, NULL, NULL);
 		if (result == false)
@@ -168,7 +168,7 @@ void CCallbackObject::ConfigureDriver(VIDEOINFOHEADER *pVHeader)
 		{
 			printf("send complete successful - buffer size = %d\n", sizeof(VIDEOINFOHEADER));
 		}
-	}
+	}*/
 
 }
 

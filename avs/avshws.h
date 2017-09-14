@@ -125,9 +125,18 @@ KSFILTER_DESCRIPTOR
 CaptureFilterDescriptor;
 
 extern
+PKSFILTER_DESCRIPTOR
+pCaptureFilterDescriptorFromCamera;
+
+
+extern
 const
 KSPIN_DESCRIPTOR_EX
 CaptureFilterPinDescriptors [CAPTURE_FILTER_PIN_COUNT];
+
+extern
+PKSPIN_DESCRIPTOR_EX
+pCaptureFilterPinDescriptorsFromCamera;
 
 extern
 const
@@ -151,6 +160,9 @@ extern
 const
 PKSDATARANGE
 CapturePinDataRanges [CAPTURE_PIN_DATA_RANGE_COUNT];
+
+extern
+PKSDATARANGE pCapturePinDataRangesFromCamera;
 
 /*************************************************
 
@@ -230,7 +242,7 @@ public:
 #include "capture.h"
 #include <uuids.h>
 
-#define IOCTL_SEND_BUFFER_SIZE  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_SEND_BUFFER_FORMAT  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_SEND_BUFFER_DATA  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 typedef struct user_buffer_entry
@@ -248,5 +260,27 @@ typedef struct device_extention
 	LIST_ENTRY listHead;
 	ULONG listCount;
 }DEVICE_EXTENTION, *PDEVICE_EXTENTION;
+
+typedef struct sample_size
+{
+	ULONG ulWidth;
+	ULONG ulHeight;
+	ULONG ulFrameSize;
+	USHORT usBitCount;
+} SAMPLE_SIZE, *PSAMPLE_SIZE;
+
+typedef struct camera_frame_format_info
+{
+	SAMPLE_SIZE image_size;
+	char szFormat[16];
+	char szVIH[16];
+	bool isCSCNeeded;
+	bool isDecoderNeeded;
+	ULONG lSampleSize;
+	GUID majorType;
+	GUID subType;
+	GUID formatType;
+	DWORD biCompression;
+} CAMERA_FRAME_FORMAT_INFO, *PCAMERA_FRAME_FORMAT_INFO;
 
 #endif //_avshws_h_

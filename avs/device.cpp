@@ -31,6 +31,7 @@
 #pragma code_seg("PAGE")
 #endif // ALLOC_PRAGMA
 
+bool bIsDataFromCameraAvailable;
 typedef NTSTATUS(*fnOriginal)(DEVICE_OBJECT *, IRP *);
 fnOriginal _pfnDispatchDeviceContorl;
 fnOriginal _pfnDispatchCreate;
@@ -155,14 +156,31 @@ Return Value:
     if (!m_Device -> Started) {
         // Create the Filter for the device
         KsAcquireDevice(m_Device);
-        Status = KsCreateFilterFactory( m_Device->FunctionalDeviceObject,
-                                        &CaptureFilterDescriptor,
-                                        L"GLOBAL",
-                                        NULL,
-                                        KSCREATE_ITEM_FREEONSTOP,
-                                        NULL,
-                                        NULL,
-                                        NULL );
+
+		if (bIsDataFromCameraAvailable == true)
+		{
+			// Если с камеры данные получены
+			Status = KsCreateFilterFactory(m_Device->FunctionalDeviceObject,
+				pCaptureFilterDescriptorFromCamera,
+				L"GLOBAL",
+				NULL,
+				KSCREATE_ITEM_FREEONSTOP,
+				NULL,
+				NULL,
+				NULL);
+		}
+		else
+		{
+			// Если с камеры данные НЕ получены
+			Status = KsCreateFilterFactory(m_Device->FunctionalDeviceObject,
+				&CaptureFilterDescriptor,
+				L"GLOBAL",
+				NULL,
+				KSCREATE_ITEM_FREEONSTOP,
+				NULL,
+				NULL,
+				NULL);
+		}
         KsReleaseDevice(m_Device);
 
     }
@@ -309,7 +327,6 @@ Return Value:
 {
 
     PAGED_CODE();
-
     if (m_DmaAdapterObject) {
         //
         // Return the DMA adapter back to the system.
@@ -880,6 +897,7 @@ Return Value:
 	PDRIVER_OBJECT MyDriverObject;
 	PDEVICE_EXTENTION pdx;
 	UNICODE_STRING wszDeviceName;
+	bIsDataFromCameraAvailable = false;
 	
 	status = KsInitializeDriver(DriverObject, RegistryPath, &CaptureDeviceDescriptor);
 	if (status == STATUS_SUCCESS)
@@ -946,10 +964,200 @@ NTSTATUS AddBufferToQueue(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG buffS
 	return status;
 }
 
+
+NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG buffSize)
+{
+	NTSTATUS status = STATUS_UNSUCCESSFUL;
+	PKSDATARANGE pCapturePinDataRangesFromCameraOriginal = NULL;
+	GUID g_PINNAME_VIDEO_CAPTURE = { STATIC_PINNAME_VIDEO_CAPTURE };
+	struct camera_frame_format_info *pAvailableFrameFormat = NULL;	
+	int nTotalResolution = buffSize / sizeof(camera_frame_format_info);
+	pAvailableFrameFormat = (camera_frame_format_info*)ExAllocatePoolWithTag(NonPagedPool, buffSize, '200T');
+	if (pAvailableFrameFormat != NULL)
+	{
+		pCapturePinDataRangesFromCamera = (PKSDATARANGE)ExAllocatePoolWithTag(NonPagedPool, nTotalResolution * sizeof(KSDATARANGE), '300T');
+		pCapturePinDataRangesFromCameraOriginal = pCapturePinDataRangesFromCamera;
+		if (pCapturePinDataRangesFromCamera != NULL)
+		{
+			RtlCopyMemory(pAvailableFrameFormat, systemBuffer, buffSize);			
+			for (int i = 0; i < nTotalResolution; i++)
+			{
+				//////////////////////////////////////////////////////////////////////////				
+				KS_DATARANGE_VIDEO	FormatCapture = {
+
+					//
+					// KSDATARANGE
+					//
+						{
+							sizeof(KS_DATARANGE_VIDEO),            // FormatSize
+							0,                                      // Flags
+							pAvailableFrameFormat[i].lSampleSize,                    // SampleSize
+							0,                                      // Reserved
+							pAvailableFrameFormat[i].majorType, // aka. MEDIATYPE_Video
+							pAvailableFrameFormat[i].subType,     //aka. MEDIASUBTYPE_XXX
+							pAvailableFrameFormat[i].formatType // aka. FORMAT_VideoInfo
+						},
+
+					TRUE,               // BOOL,  bFixedSizeSamples (all samples same size?)
+					TRUE,               // BOOL,  bTemporalCompression (all I frames?)
+					0,                  // Reserved (was StreamDescriptionFlags)
+					0,                  // Reserved (was MemoryAllocationFlags   
+										//           (KS_VIDEO_ALLOC_*))
+
+					//
+					// _KS_VIDEO_STREAM_CONFIG_CAPS  
+					//
+					{
+						pAvailableFrameFormat[i].formatType, // GUID
+						KS_AnalogVideo_NTSC_M,                            // AnalogVideoStandard
+						pAvailableFrameFormat[i].image_size.ulWidth, pAvailableFrameFormat[i].image_size.ulHeight, // InputSize, (the inherent size of the incoming signal
+										//             with every digitized pixel unique)
+										pAvailableFrameFormat[i].image_size.ulWidth, pAvailableFrameFormat[i].image_size.ulHeight, // MinCroppingSize, smallest rcSrc cropping rect allowed
+										pAvailableFrameFormat[i].image_size.ulWidth, pAvailableFrameFormat[i].image_size.ulHeight, // MaxCroppingSize, largest  rcSrc cropping rect allowed
+										8,              // CropGranularityX, granularity of cropping size
+										1,              // CropGranularityY
+										8,              // CropAlignX, alignment of cropping rect 
+										1,              // CropAlignY;
+										pAvailableFrameFormat[i].image_size.ulWidth, pAvailableFrameFormat[i].image_size.ulHeight,       // MinOutputSize, smallest bitmap stream can produce
+										pAvailableFrameFormat[i].image_size.ulWidth, pAvailableFrameFormat[i].image_size.ulHeight, // MaxOutputSize, largest  bitmap stream can produce
+										8,              // OutputGranularityX, granularity of output bitmap size
+										1,              // OutputGranularityY;
+										0,              // StretchTapsX  (0 no stretch, 1 pix dup, 2 interp...)
+										0,              // StretchTapsY
+										0,              // ShrinkTapsX 
+										0,              // ShrinkTapsY 
+										333667,         // MinFrameInterval, 100 nS units
+										640000000,      // MaxFrameInterval, 100 nS units
+										8 * 2 * 30 * pAvailableFrameFormat[i].image_size.ulHeight * pAvailableFrameFormat[i].image_size.ulWidth,  // MinBitsPerSecond;
+										8 * 2 * 30 * pAvailableFrameFormat[i].image_size.ulHeight * pAvailableFrameFormat[i].image_size.ulWidth,   // MaxBitsPerSecond;
+					},
+
+					//
+					// KS_VIDEOINFOHEADER (default format)
+					//
+					{
+						0, 0, pAvailableFrameFormat[i].image_size.ulHeight, pAvailableFrameFormat[i].image_size.ulWidth,                    // RECT  rcSource; 
+						0, 0, 0, 0,                         // RECT  rcTarget; 
+						pAvailableFrameFormat[i].image_size.ulWidth * pAvailableFrameFormat[i].image_size.ulHeight * 2 * 30,           // DWORD dwBitRate;
+						0L,                                 // DWORD dwBitErrorRate; 
+						333667,                             // REFERENCE_TIME  AvgTimePerFrame;   
+						sizeof(KS_BITMAPINFOHEADER),       // DWORD biSize;
+						pAvailableFrameFormat[i].image_size.ulWidth,                             // LONG  biWidth;
+						pAvailableFrameFormat[i].image_size.ulHeight,                             // LONG  biHeight;
+						1,                                  // WORD  biPlanes;
+						16,                                 // WORD  biBitCount;
+						pAvailableFrameFormat[i].biCompression,	// DWORD biCompression;
+						pAvailableFrameFormat[i].image_size.ulWidth * pAvailableFrameFormat[i].image_size.ulHeight * 2,                // DWORD biSizeImage;
+						0,                                  // LONG  biXPelsPerMeter;
+						0,                                  // LONG  biYPelsPerMeter;
+						0,                                  // DWORD biClrUsed;
+						0                                   // DWORD biClrImportant;
+					}
+				};
+				RtlCopyMemory(pCapturePinDataRangesFromCamera, (PKSDATARANGE)&FormatCapture, sizeof(KSDATARANGE));
+				pCapturePinDataRangesFromCamera++;
+				//////////////////////////////////////////////////////////////////////////
+			}
+			pCapturePinDataRangesFromCamera = pCapturePinDataRangesFromCameraOriginal;
+			pCaptureFilterPinDescriptorsFromCamera = (KSPIN_DESCRIPTOR_EX*)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSPIN_DESCRIPTOR_EX)*CAPTURE_FILTER_PIN_COUNT, '400T');
+			if (pCaptureFilterPinDescriptorsFromCamera != 0)
+			{
+				for (int i = 0; i < CAPTURE_FILTER_PIN_COUNT; i++)
+				{
+					KSPIN_DESCRIPTOR_EX	CaptureFilterPinDescriptor = {
+							&CapturePinDispatch, // Video Capture Pin
+							NULL,
+							{
+								0,                              // Interfaces (NULL, 0 == default)
+								NULL,
+								0,                              // Mediums (NULL, 0 == default)
+								NULL,
+								SIZEOF_ARRAY(pCapturePinDataRangesFromCamera),// Range Count
+								&pCapturePinDataRangesFromCamera,           // Ranges
+								KSPIN_DATAFLOW_OUT,             // Dataflow
+								KSPIN_COMMUNICATION_BOTH,       // Communication
+								&PIN_CATEGORY_CAPTURE,          // Category
+								&g_PINNAME_VIDEO_CAPTURE,       // Name
+								0                               // Reserved
+							},
+#ifdef _X86_                                
+						KSPIN_FLAG_GENERATE_MAPPINGS |      // Pin Flags
+#endif
+						KSPIN_FLAG_PROCESS_IN_RUN_STATE_ONLY,
+						1,                                  // Instances Possible
+						1,                                  // Instances Necessary
+						&CapturePinAllocatorFraming,        // Allocator Framing
+						reinterpret_cast <PFNKSINTERSECTHANDLEREX>
+						(CCapturePin::IntersectHandler)
+					};
+					RtlCopyMemory(pCaptureFilterPinDescriptorsFromCamera + i * sizeof(KSPIN_DESCRIPTOR_EX), &CaptureFilterPinDescriptor, sizeof(KSPIN_DESCRIPTOR_EX));
+				}
+
+				KSFILTER_DESCRIPTOR CaptureFilter = {
+					&CaptureFilterDispatch,                 // Dispatch Table
+					NULL,                                   // Automation Table
+					KSFILTER_DESCRIPTOR_VERSION,            // Version
+					0,                                      // Flags
+					&KSNAME_Filter,                         // Reference GUID
+					DEFINE_KSFILTER_PIN_DESCRIPTORS(pCaptureFilterPinDescriptorsFromCamera),
+					DEFINE_KSFILTER_CATEGORIES(CaptureFilterCategories),
+					0,
+					sizeof(KSNODE_DESCRIPTOR),
+					NULL,
+					0,
+					NULL,
+					NULL                                    // Component ID
+				};
+
+				pCaptureFilterDescriptorFromCamera = (PKSFILTER_DESCRIPTOR)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSFILTER_DESCRIPTOR), '500T');
+				if (pCaptureFilterDescriptorFromCamera != NULL)
+				{
+					RtlCopyMemory(pCaptureFilterDescriptorFromCamera, &CaptureFilter, sizeof(KSFILTER_DESCRIPTOR));
+
+
+					bIsDataFromCameraAvailable = true;
+					status = STATUS_SUCCESS;
+				}
+			}
+		}
+	}
+
+	if (bIsDataFromCameraAvailable == false)
+	{
+		if (pCaptureFilterPinDescriptorsFromCamera != NULL)
+		{
+			ExFreePool(pCaptureFilterPinDescriptorsFromCamera);
+		}
+		if (pCapturePinDataRangesFromCamera != NULL)
+		{
+			ExFreePool(pCapturePinDataRangesFromCamera);
+		}
+		if (pCaptureFilterDescriptorFromCamera != NULL)
+		{
+			ExFreePool(pCaptureFilterDescriptorFromCamera);
+		}
+	}
+
+	if (pAvailableFrameFormat != NULL)
+	{
+		ExFreePool(pAvailableFrameFormat);
+	}
+
+	return status;
+}
+
 extern "C"
 VOID DriverUnload(PDRIVER_OBJECT DriverObject)
 {
 	UNICODE_STRING wszSymLinkDeviceName;
+	if (bIsDataFromCameraAvailable == true)
+	{
+		bIsDataFromCameraAvailable = false;
+		ExFreePool(pCaptureFilterPinDescriptorsFromCamera);
+		ExFreePool(pCapturePinDataRangesFromCamera);
+		ExFreePool(pCaptureFilterDescriptorFromCamera);
+	}
+
 	RtlInitUnicodeString(&wszSymLinkDeviceName, L"\\??\\VideoControl");
 	IoDeleteSymbolicLink(&wszSymLinkDeviceName);
 	IoDeleteDevice(DriverObject->DeviceObject);
@@ -985,7 +1193,11 @@ NTSTATUS DispatchDeviceContorl(IN PDEVICE_OBJECT fdo, IN PIRP irp)
 				status = AddBufferToQueue((PDEVICE_EXTENTION)fdo->DeviceExtension, irp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
 			}
 			break;
-		case IOCTL_SEND_BUFFER_SIZE:
+		case IOCTL_SEND_BUFFER_FORMAT:
+			if (stack->Parameters.DeviceIoControl.InputBufferLength > 0)
+			{
+				status = GenerateVideoFormat((PDEVICE_EXTENTION)fdo->DeviceExtension, irp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
+			}
 			/*
 			m_HardwareSimulation -> Start (
             m_ImageSynth,
