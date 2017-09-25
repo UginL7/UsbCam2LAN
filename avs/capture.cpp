@@ -41,10 +41,26 @@
 #pragma code_seg("PAGE")
 #endif // ALLOC_PRAGMA
 
+/*
 #define DMAX_X 320
 #define DMAX_Y 240
 #define D_X 320
-#define D_Y 240
+#define D_Y 240*/
+
+#define D_CAP_X 320 
+#define D_CAP_Y 240
+#define D_CAP_FRAMERATE 16
+#define D_CAP_AVERAGE_FRAME_TIME 10000000 / D_CAP_FRAMERATE      /* [100 ns] */
+
+// Min-max properties
+#define VIDEO_MIN_WIDTH         320
+#define VIDEO_MIN_HEIGHT        240
+#define VIDEO_MAX_WIDTH         1920
+#define VIDEO_MAX_HEIGHT        1200
+#define VIDEO_MIN_FRAMERATE     15
+#define VIDEO_MAX_FRAMERATE     30
+#define VIDEO_MIN_FRAMEINTERVAL (1000000 / VIDEO_MAX_FRAMERATE)
+#define VIDEO_MAX_FRAMEINTERVAL (1000000 / VIDEO_MIN_FRAMERATE)
 
 CCapturePin::
 CCapturePin (
@@ -122,6 +138,10 @@ Return Value:
 
     CCapturePin *CapPin = new (NonPagedPool) CCapturePin (Pin);
 
+	PDEVICE_EXTENTION pdx = (PDEVICE_EXTENTION)MyDeviceObject->DeviceExtension;
+	
+
+
     if (!CapPin) {
         //
         // Return failure if we couldn't create the pin.
@@ -129,6 +149,7 @@ Return Value:
         Status = STATUS_INSUFFICIENT_RESOURCES;
 
     } else {
+
         //
         // Add the item to the object bag if we we were successful. 
         // Whenever the pin closes, the bag is cleaned up and we will be
@@ -172,7 +193,7 @@ Return Value:
             Pin, 
             &Pin -> Descriptor, 
             AVSHWS_POOLTAG);
-
+		
         if (NT_SUCCESS (Status)) { 
 
             //
@@ -212,6 +233,7 @@ Return Value:
                     Framing -> FramingItem [0].FramingRange.Range.Stepping =
                     0;
 
+				pdx->pKsPin = reinterpret_cast<PKSPIN>(Pin);
             }
 
         }
@@ -1579,7 +1601,7 @@ Return Value:
 //
 // This is the data range description of the RGB24 capture format we support.
 //
-const 
+/*const 
 KS_DATARANGE_VIDEO 
 FormatRGB24Bpp_Capture = {
 
@@ -1652,14 +1674,79 @@ FormatRGB24Bpp_Capture = {
         0,                                  // DWORD biClrUsed;
         0                                   // DWORD biClrImportant;
     }
-}; 
+}; */
+
+const
+KS_DATARANGE_VIDEO
+FormatRGB24Bpp_Capture = {
+
+	{   // KSDATARANGE
+		sizeof(KS_DATARANGE_VIDEO),            // FormatSize
+		0,                                      // Flags - ignored
+		0,                                      // SampleSize - ignored
+		0,                                      // Reserved - must be 0
+		STATICGUIDOF(KSDATAFORMAT_TYPE_VIDEO), // aka. MEDIATYPE_Video
+		0x32595559, 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b,
+		0x71,     //aka. MEDIASUBTYPE_YUY2,
+		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO) // aka. FORMAT_VideoInfo
+	},
+
+	TRUE,               // BOOL,  bFixedSizeSamples (all samples same size?)
+	TRUE,               // BOOL,  bTemporalCompression (all I frames?)
+	0,                  // Reserved (was StreamDescriptionFlags)
+	0,                  // Reserved (was MemoryAllocationFlags ) 
+
+	{   // KS_VIDEO_STREAM_CONFIG_CAPS  
+		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO), // GUID
+		KS_AnalogVideo_None,    // This is a digital sensor
+		D_CAP_X, D_CAP_Y,       // InputSize, (the inherent size of the incoming 		signal with every digitized pixel unique)
+		D_CAP_X, D_CAP_Y,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
+		D_CAP_X, D_CAP_Y,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
+		1,              // CropGranularityX, granularity of cropping size
+		1,              // CropGranularityY
+		1,              // CropAlignX, alignment of cropping rect 
+		1,              // CropAlignY;
+		VIDEO_MIN_WIDTH, VIDEO_MIN_HEIGHT,      // MinOutputSize, smallest 	bitmap stream can produce
+		VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT,      // MaxOutputSize, largest  	bitmap stream can produce
+		2,              // OutputGranularityX, granularity of output bitmap size
+		1,              // OutputGranularityY;
+		0,              // StretchTapsX  (0 no stretch, 1 pix dup, 2 interp...)
+		0,              // StretchTapsY
+		0,              // ShrinkTapsX 
+		0,              // ShrinkTapsY 
+		VIDEO_MIN_FRAMEINTERVAL,      // MinFrameInterval, 100 nS units
+		VIDEO_MAX_FRAMEINTERVAL,      // MaxFrameInterval, 100 nS units
+		8 * 2 * VIDEO_MIN_FRAMERATE * VIDEO_MIN_WIDTH * VIDEO_MIN_HEIGHT,    // 	MinBitsPerSecond;
+		8 * 2 * VIDEO_MAX_FRAMERATE * VIDEO_MAX_WIDTH * VIDEO_MAX_HEIGHT,    // MaxBitsPerSecond;
+	},
+
+	{   // KS_VIDEOINFOHEADER (default format)
+		0, 0, D_CAP_X, D_CAP_Y,                     // RECT  rcSource; 
+		0, 0, 0, 0,                                 // RECT  rcTarget; 
+		D_CAP_X * D_CAP_Y * 2 * D_CAP_FRAMERATE,    // DWORD dwBitRate;
+		0L,                                         // DWORD dwBitErrorRate; 
+		D_CAP_AVERAGE_FRAME_TIME,                   // REFERENCE_TIME  AvgTimePerFrame;  // 16 fps 
+			sizeof(KS_BITMAPINFOHEADER),       // DWORD biSize;
+			D_CAP_X,                            // LONG  biWidth;
+			D_CAP_Y,                            // LONG  biHeight;
+			1,                                  // WORD  biPlanes;
+			16,                                 // WORD  biBitCount;
+			KS_BI_RGB,                        // DWORD biCompression;
+			D_CAP_X * D_CAP_Y * 2,              // DWORD biSizeImage;
+			0,                                  // LONG  biXPelsPerMeter;
+			0,                                  // LONG  biYPelsPerMeter;
+			0,                                  // DWORD biClrUsed;
+			0                                   // DWORD biClrImportant;
+	}
+};
+
 
 //
 // FormatYUY2_Capture:
 //
 // This is the data range description of the YUY2 format we support.
 //
-const 
+/*const 
 KS_DATARANGE_VIDEO 
 FormatYUY2_Capture = {
 
@@ -1732,7 +1819,71 @@ FormatYUY2_Capture = {
         0,                                  // DWORD biClrUsed;
         0                                   // DWORD biClrImportant;
     }
-}; 
+}; */
+
+const
+KS_DATARANGE_VIDEO
+FormatYUY2_Capture = {
+
+	{   // KSDATARANGE
+		sizeof(KS_DATARANGE_VIDEO),            // FormatSize
+		0,                                      // Flags - ignored
+		0,                                      // SampleSize - ignored
+		0,                                      // Reserved - must be 0
+		STATICGUIDOF(KSDATAFORMAT_TYPE_VIDEO), // aka. MEDIATYPE_Video
+		0x32595559, 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b,
+		0x71,     //aka. MEDIASUBTYPE_YUY2,
+		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO) // aka. FORMAT_VideoInfo
+	},
+
+	TRUE,               // BOOL,  bFixedSizeSamples (all samples same size?)
+	TRUE,               // BOOL,  bTemporalCompression (all I frames?)
+	0,                  // Reserved (was StreamDescriptionFlags)
+	0,                  // Reserved (was MemoryAllocationFlags ) 
+
+	{   // KS_VIDEO_STREAM_CONFIG_CAPS  
+		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO), // GUID
+		KS_AnalogVideo_None,    // This is a digital sensor
+		D_CAP_X, D_CAP_Y,       // InputSize, (the inherent size of the incoming 		signal with every digitized pixel unique)
+		D_CAP_X, D_CAP_Y,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
+		D_CAP_X, D_CAP_Y,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
+		1,              // CropGranularityX, granularity of cropping size
+		1,              // CropGranularityY
+		1,              // CropAlignX, alignment of cropping rect 
+		1,              // CropAlignY;
+		VIDEO_MIN_WIDTH, VIDEO_MIN_HEIGHT,      // MinOutputSize, smallest 	bitmap stream can produce
+		VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT,      // MaxOutputSize, largest  	bitmap stream can produce
+		2,              // OutputGranularityX, granularity of output bitmap size
+		1,              // OutputGranularityY;
+		0,              // StretchTapsX  (0 no stretch, 1 pix dup, 2 interp...)
+		0,              // StretchTapsY
+		0,              // ShrinkTapsX 
+		0,              // ShrinkTapsY 
+		VIDEO_MIN_FRAMEINTERVAL,      // MinFrameInterval, 100 nS units
+		VIDEO_MAX_FRAMEINTERVAL,      // MaxFrameInterval, 100 nS units
+		8 * 2 * VIDEO_MIN_FRAMERATE * VIDEO_MIN_WIDTH * VIDEO_MIN_HEIGHT,    // 	MinBitsPerSecond;
+		8 * 2 * VIDEO_MAX_FRAMERATE * VIDEO_MAX_WIDTH * VIDEO_MAX_HEIGHT,    // MaxBitsPerSecond;
+	},
+
+	{   // KS_VIDEOINFOHEADER (default format)
+		0, 0, D_CAP_X, D_CAP_Y,                     // RECT  rcSource; 
+		0, 0, 0, 0,                                 // RECT  rcTarget; 
+		D_CAP_X * D_CAP_Y * 2 * D_CAP_FRAMERATE,    // DWORD dwBitRate;
+		0L,                                         // DWORD dwBitErrorRate; 
+		D_CAP_AVERAGE_FRAME_TIME,                   // REFERENCE_TIME  	AvgTimePerFrame;  // 16 fps 
+sizeof(KS_BITMAPINFOHEADER),       // DWORD biSize;
+D_CAP_X,                            // LONG  biWidth;
+D_CAP_Y,                            // LONG  biHeight;
+1,                                  // WORD  biPlanes;
+16,                                 // WORD  biBitCount;
+FOURCC_YUY2,                        // DWORD biCompression;
+D_CAP_X * D_CAP_Y * 2,              // DWORD biSizeImage;
+0,                                  // LONG  biXPelsPerMeter;
+0,                                  // LONG  biYPelsPerMeter;
+0,                                  // DWORD biClrUsed;
+0                                   // DWORD biClrImportant;
+	}
+};
 
 //
 // CapturePinDispatch:
@@ -1778,11 +1929,18 @@ DECLARE_SIMPLE_FRAMING_EX (
 // This is the list of data ranges supported on the capture pin.  We support
 // two: one RGB24, and one YUY2.
 //
+
 const 
 PKSDATARANGE 
 CapturePinDataRanges [CAPTURE_PIN_DATA_RANGE_COUNT] = {
     (PKSDATARANGE) &FormatYUY2_Capture,
     (PKSDATARANGE) &FormatRGB24Bpp_Capture
     };
+
+
+/*const
+PKSDATARANGE
+CapturePinDataRanges = NULL;*/
+
 
 PKSDATARANGE pCapturePinDataRangesFromCamera = NULL;

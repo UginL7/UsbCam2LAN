@@ -585,10 +585,8 @@ Return Value:
     while(FALSE);
 
 #elif defined(_X86_)
-	for (ULONG MappingNum = 0; 
-        MappingNum < MappingsCount &&
-            m_ScatterGatherMappingsQueued < m_ScatterGatherMappingsMax; 
-        MappingNum++) {
+	for (ULONG MappingNum = 0; MappingNum < MappingsCount && m_ScatterGatherMappingsQueued < m_ScatterGatherMappingsMax; MappingNum++) 
+	{
 
         PSCATTER_GATHER_ENTRY Entry =
             reinterpret_cast <PSCATTER_GATHER_ENTRY> (

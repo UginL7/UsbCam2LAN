@@ -146,7 +146,10 @@ int CEnumDevice::GetDeviceAvailableResolution(camera_frame_format_info *pCamReso
 							{
 								if (pCamResolution == nullptr)
 								{
-									nCounter++;
+									if (pMT->formattype == FORMAT_VideoInfo)
+									{
+										nCounter++;
+									}
 								}
 								else
 								{	
@@ -205,11 +208,10 @@ int CEnumDevice::GetDeviceAvailableResolution(camera_frame_format_info *pCamReso
 											{
 												pCamRes.isDecoderNeeded = true;
 											}
-											memcpy(pCamResolution, (void*)&pCamRes, sizeof(camera_frame_format_info));
-											pCamResolution++;
+											//memcpy(pCamResolution, (void*)&pCamRes, sizeof(camera_frame_format_info));
+											//pCamResolution++;
 										}
 									}
-									
 								}
 							}
 							pEnumMediaType->Release();

@@ -68,14 +68,12 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	hr = pSample->GetPointer(&pOriginal);
 
 	unsigned char *pYUYVBuff;
-	int heigth = 240;
-	int width = 320;
 	int byteColor = 2; // при умножении на 8(бит) получается глубига цвета
-	int pos = -1 * width;
+	int pos = -1 * VIDEO_WIDTH;
 	int line = 1;
 	
-	pYUYVBuff = (unsigned char*)malloc(width * heigth * byteColor);
-	memset(pYUYVBuff, 0, width * heigth * byteColor);
+	pYUYVBuff = (unsigned char*)malloc(VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
+	memset(pYUYVBuff, 0, VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
 
 	if (nBuffSize <= 0 || pOriginal == NULL)
 	{
@@ -99,20 +97,20 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 		if (i % 2 == 0)
 		{
 			// Запись строк снизу вверх. Для того, чтобы получить не перевернутую картинку
-			pYUYVBuff[pos + (byteColor * heigth - line) * width] = Y;
-			pYUYVBuff[pos + 1 + (byteColor * heigth - line) * width] = U;
-			pYUYVBuff[pos + 2 + (byteColor * heigth - line) * width] = Y;
+			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
+			pYUYVBuff[pos + 1 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = U;
+			pYUYVBuff[pos + 2 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
 			dwUYVYSize += 3;
 			pos += 3;
 		}
 		else
 		{
-			pYUYVBuff[pos + (byteColor * heigth - line) * width] = V;
+			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = V;
 			dwUYVYSize++;
 			pos++;
 		}
 
-		if (pos == width)
+		if (pos == VIDEO_WIDTH)
 		{
 			pos = 0;
 			line++;

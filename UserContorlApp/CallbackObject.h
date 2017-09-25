@@ -1,5 +1,6 @@
 #pragma once
 #include "SampleGrabber.h"
+#include "structures.h"
 
 class CCallbackObject :
 	public ISampleGrabberCB

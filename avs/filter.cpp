@@ -207,3 +207,6 @@ pCaptureFilterDescriptorFromCamera = NULL;
 
 PKSPIN_DESCRIPTOR_EX
 pCaptureFilterPinDescriptorsFromCamera = NULL;
+
+PKS_DATARANGE_VIDEO 
+pKsDataRangeVideo = NULL;

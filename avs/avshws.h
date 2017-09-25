@@ -156,13 +156,26 @@ const
 KSPIN_DISPATCH
 CapturePinDispatch;
 
+
+
 extern
 const
 PKSDATARANGE
-CapturePinDataRanges [CAPTURE_PIN_DATA_RANGE_COUNT];
+CapturePinDataRanges[CAPTURE_PIN_DATA_RANGE_COUNT];
+/*extern
+const
+PKSDATARANGE
+CapturePinDataRanges;*/
+
+extern
+PKS_DATARANGE_VIDEO pKsDataRangeVideo;
 
 extern
 PKSDATARANGE pCapturePinDataRangesFromCamera;
+
+// device.cpp
+extern
+DEVICE_OBJECT *MyDeviceObject;
 
 /*************************************************
 
@@ -259,6 +272,9 @@ typedef struct device_extention
 	UNICODE_STRING SymbolicDeviceName;
 	LIST_ENTRY listHead;
 	ULONG listCount;
+	PKSFILTERFACTORY pKsFilterFactory;
+	PKSDEVICE pKsDevice;
+	PKSPIN pKsPin;
 }DEVICE_EXTENTION, *PDEVICE_EXTENTION;
 
 typedef struct sample_size
