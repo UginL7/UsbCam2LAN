@@ -64,16 +64,17 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 	bool result;
 	DWORD dwOutputBufferSize;	
 	DWORD nBuffSize = pSample->GetActualDataLength();
+	DWORD dwBuffTest = pSample->GetSize();
 	BYTE *pOriginal = NULL;
 	hr = pSample->GetPointer(&pOriginal);
 
 	unsigned char *pYUYVBuff;
 	int byteColor = 2; // при умножении на 8(бит) получается глубига цвета
-	int pos = -1 * VIDEO_WIDTH;
+	int pos = -1 * SelectedResolution.image_size.ulWidth;
 	int line = 1;
 	
-	pYUYVBuff = (unsigned char*)malloc(VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
-	memset(pYUYVBuff, 0, VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
+	pYUYVBuff = (unsigned char*)malloc(SelectedResolution.image_size.ulWidth * SelectedResolution.image_size.ulHeight * byteColor);
+	memset(pYUYVBuff, 0, SelectedResolution.image_size.ulWidth * SelectedResolution.image_size.ulHeight * byteColor);
 
 	if (nBuffSize <= 0 || pOriginal == NULL)
 	{
@@ -97,20 +98,20 @@ STDMETHODIMP CCallbackObject::SampleCB(double SampleTime, IMediaSample *pSample)
 		if (i % 2 == 0)
 		{
 			// Запись строк снизу вверх. Для того, чтобы получить не перевернутую картинку
-			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
-			pYUYVBuff[pos + 1 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = U;
-			pYUYVBuff[pos + 2 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
+			pYUYVBuff[pos + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = Y;
+			pYUYVBuff[pos + 1 + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = U;
+			pYUYVBuff[pos + 2 + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = Y;
 			dwUYVYSize += 3;
 			pos += 3;
 		}
 		else
 		{
-			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = V;
+			pYUYVBuff[pos + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = V;
 			dwUYVYSize++;
 			pos++;
 		}
 
-		if (pos == VIDEO_WIDTH)
+		if (pos == SelectedResolution.image_size.ulWidth)
 		{
 			pos = 0;
 			line++;

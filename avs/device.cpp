@@ -1221,6 +1221,7 @@ NTSTATUS DispatchDeviceContorl(IN PDEVICE_OBJECT fdo, IN PIRP irp)
 				status = AddBufferToQueue((PDEVICE_EXTENTION)fdo->DeviceExtension, irp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
 			}
 			break;
+			IOCTL_CHANGER_BASE
 		case IOCTL_SEND_BUFFER_FORMAT:
 			if (stack->Parameters.DeviceIoControl.InputBufferLength > 0)
 			{

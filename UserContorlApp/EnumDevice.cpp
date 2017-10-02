@@ -178,7 +178,6 @@ int CEnumDevice::GetDeviceAvailableResolution(camera_frame_format_info *pCamReso
 											{
 												pCamRes.isDecoderNeeded = true;
 											}
-											
 											memcpy(pCamResolution, (void*)&pCamRes, sizeof(camera_frame_format_info));
 											pCamResolution++;
 										}

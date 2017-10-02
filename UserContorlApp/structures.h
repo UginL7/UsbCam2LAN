@@ -4,7 +4,6 @@
 #include<atlbase.h>
 #include<initguid.h>
 
-
 #define VIDEO_WIDTH 640
 #define	VIDEO_HEIGHT 480
 #define SAMPLE_SIZE VIDEO_HEIGHT*VIDEO_WIDTH*3
@@ -43,3 +42,6 @@ struct camera_frame_format_info
 	GUID formatType;
 	DWORD biCompression;
 };
+
+extern
+struct camera_frame_format_info SelectedResolution;

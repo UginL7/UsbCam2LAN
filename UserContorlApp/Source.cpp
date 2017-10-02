@@ -16,12 +16,13 @@
 
 #define VBOX TRUE
 
-
 #if VBOX
 WCHAR wszCamName[] = L"VirtualBox Webcam - Logitech QuickCam Pro 5000";
 #else
 WCHAR wszCamName[] = L"Logitech QuickCam Pro 5000";
 #endif
+
+struct camera_frame_format_info SelectedResolution;
 
 static
 const
@@ -180,23 +181,21 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	AM_MEDIA_TYPE pSG_media_type;
 	ZeroMemory(&pSG_media_type, sizeof(AM_MEDIA_TYPE));
 	pSG_media_type.majortype = MEDIATYPE_Video;
-
 	pSG_media_type.subtype = MEDIASUBTYPE_RGB24;
-
 	pSG_media_type.formattype = FORMAT_VideoInfo;
 	pSG_media_type.bFixedSizeSamples = TRUE;
 	pSG_media_type.cbFormat = 88;
-	pSG_media_type.lSampleSize = SAMPLE_SIZE;
+	pSG_media_type.lSampleSize = SelectedResolution.lSampleSize;
 	pSG_media_type.bTemporalCompression = FALSE;
 
 	VIDEOINFOHEADER pSG_video_header_format;
 	ZeroMemory(&pSG_video_header_format, sizeof(VIDEOINFOHEADER));
-	pSG_video_header_format.bmiHeader.biSize = 40;
-	pSG_video_header_format.bmiHeader.biWidth = VIDEO_WIDTH;
-	pSG_video_header_format.bmiHeader.biHeight = VIDEO_HEIGHT;
+	pSG_video_header_format.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	pSG_video_header_format.bmiHeader.biWidth = SelectedResolution.image_size.ulWidth;
+	pSG_video_header_format.bmiHeader.biHeight = SelectedResolution.image_size.ulHeight;
 	pSG_video_header_format.bmiHeader.biPlanes = 1;
 	pSG_video_header_format.bmiHeader.biBitCount = 24;
-	pSG_video_header_format.bmiHeader.biSizeImage = SAMPLE_SIZE;
+	pSG_video_header_format.bmiHeader.biSizeImage = SelectedResolution.lSampleSize;
 	pSG_media_type.pbFormat = (BYTE *)&pSG_video_header_format;
 
 	// получение указателя ISampleGrabber указание ему медиатипа 
@@ -248,11 +247,10 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	CComQIPtr<ISampleGrabber, &IID_ISampleGrabber> pSampleGrabber_isg(pSGrabber);
 	// Вызов ф-ции (0 - SampleCB, 1 - BufferCB) для работы с потоком
 	hr = pSampleGrabber_isg->SetCallback(new CCallbackObject, 0);
-	CHECK_HR(hr, _T("Can't set callback"));
+	CHECK_HR(hr, _T("Can't set callback SampleCB"));
 
 	hr = pGraph->ConnectDirect(GetPin(pSGrabber, L"Output"), GetPin(pColorSpaceConverter, L"Input"), NULL);
 	CHECK_HR(hr, _T("Can't connect SmapleGrabber_Out CSC_In"));
-	
 
 	hr = pGraph->ConnectDirect(GetPin(pColorSpaceConverter, L"XForm Out"), GetPin(pVideoRend, L"VMR Input0"), NULL);
 	CHECK_HR(hr, "Can't connect CSC and Video Renderer");
@@ -263,21 +261,31 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 //ТЕстовая ф-ция для трансляции BMP файла в драйвер
 void TranslateBMPFile()
 {
-	char pOriginal[SAMPLE_SIZE] = { 0 };
+	char *pOriginal = nullptr;
 	FILE *pFile = fopen("bike240.bmp", "rb");
 	rewind(pFile);
+
+	pOriginal = (char*)malloc(SelectedResolution.lSampleSize);
+	if (pOriginal == nullptr)
+	{
+		printf("Not enough memory!\n");
+		system("pause");
+		exit(-1);
+	}
+	strset(pOriginal, '0');
+
 	fseek(pFile, 54, SEEK_SET);
-	size_t nBuffSize = fread(pOriginal, sizeof(char), SAMPLE_SIZE, pFile);
+	size_t nBuffSize = fread(pOriginal, sizeof(char), SelectedResolution.lSampleSize, pFile);
 	fclose(pFile);
 
 	unsigned long nCounter = 0;
 	unsigned long dwUYVYSize = 0;
 	unsigned char *pYUYVBuff;
 	int byteColor = 2;
-	int pos = -1 * VIDEO_WIDTH;
+	int pos = -1 * SelectedResolution.image_size.ulWidth;
 	int line = 1;
-	pYUYVBuff = (unsigned char*)malloc(VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
-	memset(pYUYVBuff, 0, VIDEO_WIDTH * VIDEO_HEIGHT * byteColor);
+	pYUYVBuff = (unsigned char*)malloc(SelectedResolution.image_size.ulWidth * SelectedResolution.image_size.ulHeight * byteColor);
+	memset(pYUYVBuff, 0, SelectedResolution.image_size.ulWidth * SelectedResolution.image_size.ulHeight * byteColor);
 
 
 	for (int i = 0; i < nBuffSize; i += 3)
@@ -294,20 +302,20 @@ void TranslateBMPFile()
 		if (i % 2 == 0)
 		{
 			// Запись строк снизу вверх. Для того, чтобы получить не перевернутую картинку
-			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
-			pYUYVBuff[pos + 1 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = U;
-			pYUYVBuff[pos + 2 + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = Y;
+			pYUYVBuff[pos + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = Y;
+			pYUYVBuff[pos + 1 + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = U;
+			pYUYVBuff[pos + 2 + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = Y;
 			dwUYVYSize += 3;
 			pos += 3;
 		}
 		else
 		{
-			pYUYVBuff[pos + (byteColor * VIDEO_HEIGHT - line) * VIDEO_WIDTH] = V;
+			pYUYVBuff[pos + (byteColor * SelectedResolution.image_size.ulHeight - line) * SelectedResolution.image_size.ulWidth] = V;
 			dwUYVYSize++;
 			pos++;
 		}
 
-		if (pos == VIDEO_WIDTH)
+		if (pos == SelectedResolution.image_size.ulWidth)
 		{
 			pos = 0;
 			line++;
@@ -338,6 +346,7 @@ void TranslateBMPFile()
 		Sleep(100);
 	} while (nCounter < 30);
 
+	free(pOriginal);
 	free(pYUYVBuff);
 }
 
@@ -353,7 +362,7 @@ int TranslateWebCamStream()
 #else
 	printf("In PC\n");
 #endif
-	wprintf(L"Camera Name = %s\nResolution w=%d\th=%d\n", wszCamName,VIDEO_WIDTH,VIDEO_HEIGHT);
+	wprintf(L"Camera Name = %s\nResolution w=%d\th=%d\n", wszCamName, SelectedResolution.image_size.ulWidth, SelectedResolution.image_size.ulHeight);
 	system("pause");
 	printf("Building graph...\n");
 	HRESULT hr = BuildGraph(graph);
@@ -397,7 +406,6 @@ int TranslateWebCamStream()
 	}
 	CoUninitialize();
 
-	system("pause");
 	return 0;
 }
 
@@ -424,7 +432,6 @@ void SendBufferToDriver(void * buffRes, unsigned long ulSize)
 	
 	CloseHandle(hDriverOpen);
 }
-
 
 // Перезагрузка драйвера
 void RestartDevice(char *szSvcRestart)
@@ -598,15 +605,15 @@ int GetCameraResolution()
 		printf("Input resolution number : ");
 		scanf_s("%d", &nResolutionChoise);
 		pAvailableResolution = (camera_frame_format_info*)pResOriginal + nResolutionChoise - 1;
-		FrameRes = pAvailableResolution[0];
+/*		FrameRes = pAvailableResolution[0];*/
+		SelectedResolution = pAvailableResolution[0];
 
 		// отправка данных в драйвер
-		pAvailableResolution = (camera_frame_format_info*)pResOriginal;
-		SendBufferToDriver(pAvailableResolution, nSizeOfResolutionArray * sizeof(camera_frame_format_info));
-		RestartDevice("avshws");
+ 		pAvailableResolution = (camera_frame_format_info*)pResOriginal;
+// 		SendBufferToDriver(pAvailableResolution, nSizeOfResolutionArray * sizeof(camera_frame_format_info));
+// 		RestartDevice("avshws");
 
-
-		printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", nResolutionChoise, FrameRes.image_size.ulWidth, FrameRes.image_size.ulHeight, FrameRes.image_size.usBitCount, FrameRes.szFormat, FrameRes.szVIH);
+		printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", nResolutionChoise, SelectedResolution.image_size.ulWidth, SelectedResolution.image_size.ulHeight, SelectedResolution.image_size.usBitCount, SelectedResolution.szFormat, SelectedResolution.szVIH);
 		break;
 	}
 
@@ -663,8 +670,10 @@ int main()
  	SetConsoleOutputCP(1251);
 
 	int nRet = 0;
+	nRet = GetCameraResolution();
 	nRet = TranslateWebCamStream();
-	//nRet = GetCameraResolution();
+	
 	//RestartDevice("avshws");
+	system("pause");
 	return nRet;
 }

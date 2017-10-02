@@ -47,8 +47,8 @@
 #define D_X 320
 #define D_Y 240*/
 
-#define D_CAP_X 320 
-#define D_CAP_Y 240
+#define D_CAP_X 640 
+#define D_CAP_Y 480
 #define D_CAP_FRAMERATE 16
 #define D_CAP_AVERAGE_FRAME_TIME 10000000 / D_CAP_FRAMERATE      /* [100 ns] */
 
