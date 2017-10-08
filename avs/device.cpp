@@ -38,6 +38,10 @@ fnOriginal _pfnDispatchCreate;
 fnOriginal _pfnDispatchClose;
 
 
+// Static resolution generation
+NTSTATUS GenerateVideoFormat_Static(PVOID systemBuffer, ULONG buffSize);
+
+
 DEVICE_OBJECT *MyDeviceObject;
 
 NTSTATUS
@@ -70,40 +74,93 @@ Return Value:
 
     NTSTATUS Status;
 
-    CCaptureDevice *CapDevice = new (NonPagedPool) CCaptureDevice (Device);
 
-    if (!CapDevice) {
-        //
-        // Return failure if we couldn't create the pin.
-        //
-        Status = STATUS_INSUFFICIENT_RESOURCES;
 
-    } else {
+	//тут вызов функции получения разрешений
+	NTSTATUS status;
+	int nResolutionCount = 2;
+	ULONG nBuffSize = nResolutionCount * sizeof(camera_frame_format_info);
+	
+	struct camera_frame_format_info* pResolution = NULL;
+	struct camera_frame_format_info* pResolutionOrinig = NULL;
 
-        //
-        // Add the item to the object bag if we were successful.
-        // Whenever the device goes away, the bag is cleaned up and
-        // we will be freed.
-        //
-        // For backwards compatibility with DirectX 8.0, we must grab
-        // the device mutex before doing this.  For Windows XP, this is
-        // not required, but it is still safe.
-        //
-        KsAcquireDevice (Device);
-        Status = KsAddItemToObjectBag (
-            Device -> Bag,
-            reinterpret_cast <PVOID> (CapDevice),
-            reinterpret_cast <PFNKSFREE> (CCaptureDevice::Cleanup)
-            );
-        KsReleaseDevice (Device);
+	pResolution = (camera_frame_format_info*)ExAllocatePoolWithTag(NonPagedPool, nBuffSize, '100T');
+	pResolutionOrinig = pResolution;
+	if (pResolution != NULL)
+	{		
+		for (int i = 0; i < nResolutionCount; i++)
+		{
+			pResolution->image_size.ulWidth = 320 * (i + 1);
+			pResolution->image_size.ulHeight = 240 * (i + 1);
+			pResolution->image_size.usBitCount = 24;
+			pResolution->image_size.ulFrameSize = pResolution->image_size.ulWidth * pResolution->image_size.ulHeight * pResolution->image_size.usBitCount / 8;
+			pResolution->majorType = KSDATAFORMAT_TYPE_VIDEO;     // aka. MEDIATYPE_Video
+			pResolution->subType = MEDIASUBTYPE_RGB24;
+			pResolution->formatType = KSDATAFORMAT_SPECIFIER_VIDEOINFO; // aka. FORMAT_VideoInf
+			pResolution->biCompression = KS_BI_RGB;
+			pResolution++;
+		}
+		pResolution = pResolutionOrinig;
+	
+		status = GenerateVideoFormat_Static(pResolution, nBuffSize);
+	}
+	else
+	{
+		Status = STATUS_INSUFFICIENT_RESOURCES;
+		return Status;
+	}
 
-        if (!NT_SUCCESS (Status)) {
-            delete CapDevice;
-        } else {
-            Device -> Context = reinterpret_cast <PVOID> (CapDevice);
-        }
+	if (status == STATUS_SUCCESS)
+	{
+		CCaptureDevice *CapDevice = new (NonPagedPool) CCaptureDevice(Device);
 
-    }
+		if (!CapDevice) 
+		{
+			//
+			// Return failure if we couldn't create the pin.
+			//
+			Status = STATUS_INSUFFICIENT_RESOURCES;
+
+		}
+		else 
+		{
+
+			//
+			// Add the item to the object bag if we were successful.
+			// Whenever the device goes away, the bag is cleaned up and
+			// we will be freed.
+			//
+			// For backwards compatibility with DirectX 8.0, we must grab
+			// the device mutex before doing this.  For Windows XP, this is
+			// not required, but it is still safe.
+			//
+			KsAcquireDevice(Device);
+			Status = KsAddItemToObjectBag(
+				Device->Bag,
+				reinterpret_cast <PVOID> (CapDevice),
+				reinterpret_cast <PFNKSFREE> (CCaptureDevice::Cleanup)
+			);
+			KsReleaseDevice(Device);
+
+			if (!NT_SUCCESS(Status)) {
+				delete CapDevice;
+			}
+			else {
+				Device->Context = reinterpret_cast <PVOID> (CapDevice);
+			}
+		}
+	}
+	else
+	{
+		Status = status;
+	}
+
+
+	if (pResolution != NULL)
+	{
+		ExFreePool(pResolution);
+	}
+
 
     return Status;
 
@@ -153,13 +210,21 @@ Return Value:
 
     NTSTATUS Status = STATUS_SUCCESS;
 
-	PDEVICE_EXTENTION pdx = (PDEVICE_EXTENTION)MyDeviceObject->DeviceExtension;
-	pdx->pKsDevice = m_Device;
-
     if (!m_Device -> Started) {
         // Create the Filter for the device
         KsAcquireDevice(m_Device);
 		
+
+		Status = KsCreateFilterFactory(m_Device->FunctionalDeviceObject,
+			pCaptureFilterDescriptorFromCamera,
+			L"GLOBAL",
+			NULL,
+			KSCREATE_ITEM_FREEONSTOP,
+			NULL,
+			NULL,
+			NULL);
+
+/*
 		Status = KsCreateFilterFactory(m_Device->FunctionalDeviceObject,
 			&CaptureFilterDescriptor,
 			L"GLOBAL",
@@ -167,7 +232,8 @@ Return Value:
 			KSCREATE_ITEM_FREEONSTOP,
 			NULL,
 			NULL,
-			&pdx->pKsFilterFactory);
+			NULL);
+*/
 	
 		KsReleaseDevice(m_Device);
 
@@ -324,7 +390,6 @@ Return Value:
 
         m_DmaAdapterObject = NULL;
     }
-
 }
 
 /*************************************************/
@@ -937,7 +1002,7 @@ NTSTATUS AddBufferToQueue(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG buffS
 	NTSTATUS status = STATUS_UNSUCCESSFUL;
 	KIRQL OldIRQL;
 	PUSER_BUFFER_ENTRY pBufferEntry = NULL;
-	pBufferEntry = (PUSER_BUFFER_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(USER_BUFFER_ENTRY), '000T');
+	pBufferEntry = (PUSER_BUFFER_ENTRY)ExAllocatePoolWithTag(NonPagedPool, sizeof(USER_BUFFER_ENTRY), '100T');
 	pBufferEntry->userData = ExAllocatePoolWithTag(NonPagedPool, buffSize, '100T');
 	pBufferEntry->buffSize = buffSize;
 	if (pBufferEntry->userData != NULL)
@@ -953,31 +1018,31 @@ NTSTATUS AddBufferToQueue(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG buffS
 }
 
 
-NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG buffSize)
+NTSTATUS GenerateVideoFormat_Static(PVOID systemBuffer, ULONG buffSize)
 {
 	NTSTATUS status = STATUS_UNSUCCESSFUL;
 	PKS_DATARANGE_VIDEO pKsDataRangeVideoOriginal = NULL;
-	PKSDATARANGE pCapturePinDataRangesFromCameraOriginal = NULL;
 	PKSPIN_DESCRIPTOR_EX pCaptureFilterPinDescriptorsFromCameraOriginal = NULL;
-	GUID g_PINNAME_VIDEO_CAPTURE = { STATIC_PINNAME_VIDEO_CAPTURE };
-	struct camera_frame_format_info *pAvailableFrameFormat = NULL;	
+	struct camera_frame_format_info *pAvailableFrameFormat = (struct camera_frame_format_info *)systemBuffer;
 	int nTotalResolution = buffSize / sizeof(camera_frame_format_info);
+	PVOID *pMassOfPointer = NULL;
+//	int *nMassOfPointer = NULL;
+
+//	nMassOfPointer = (int*)ExAllocatePoolWithTag(NonPagedPool, (nTotalResolution * sizeof(int)), '100T');
+	pMassOfPointer = (PVOID *)ExAllocatePoolWithTag(NonPagedPool, (nTotalResolution * sizeof(PVOID *)), '100T');
+	if (pMassOfPointer == NULL)
+	{
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
 
 	//////////////////////////////////////////////////////////////////////////
 	// Выделение памяти для camera_frame_format_info pAvailableFrameFormat
-	pAvailableFrameFormat = (camera_frame_format_info*)ExAllocatePoolWithTag(NonPagedPool, buffSize, '200T');
 	if (pAvailableFrameFormat != NULL)
 	{
-		//////////////////////////////////////////////////////////////////////////
-		// Выделение памяти для KSDATARANGE pCapturePinDataRangesFromCamera
-		pCapturePinDataRangesFromCamera = (PKSDATARANGE)ExAllocatePoolWithTag(NonPagedPool, nTotalResolution * sizeof(KSDATARANGE), '300T');
-		pCapturePinDataRangesFromCameraOriginal = pCapturePinDataRangesFromCamera;
-		if (pCapturePinDataRangesFromCamera != NULL)
-		{
-			RtlCopyMemory(pAvailableFrameFormat, systemBuffer, buffSize);
-			pKsDataRangeVideo = (PKS_DATARANGE_VIDEO)ExAllocatePoolWithTag(NonPagedPool, nTotalResolution * sizeof(KS_DATARANGE_VIDEO), '400T');
+		
+			pKsDataRangeVideo = (PKS_DATARANGE_VIDEO)ExAllocatePoolWithTag(NonPagedPool, nTotalResolution * sizeof(KS_DATARANGE_VIDEO), '100T');
 			pKsDataRangeVideoOriginal = pKsDataRangeVideo;
-			if(pKsDataRangeVideo != NULL)
+			if (pKsDataRangeVideo != NULL)
 			{
 				//////////////////////////////////////////////////////////////////////////
 				// Заполнение KS_DATARANGE_VIDEO pKsDataRangeVideo
@@ -987,7 +1052,7 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 					// KSDATARANGE                 
 					pKsDataRangeVideo->DataRange.FormatSize = sizeof(KS_DATARANGE_VIDEO);
 					pKsDataRangeVideo->DataRange.Flags = 0;
-					pKsDataRangeVideo->DataRange.SampleSize = pAvailableFrameFormat[i].lSampleSize;
+					pKsDataRangeVideo->DataRange.SampleSize = pAvailableFrameFormat[i].image_size.ulFrameSize;
 					pKsDataRangeVideo->DataRange.Reserved = 0;
 					pKsDataRangeVideo->DataRange.MajorFormat = pAvailableFrameFormat[i].majorType;
 					pKsDataRangeVideo->DataRange.SubFormat = pAvailableFrameFormat[i].subType;
@@ -1011,6 +1076,8 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 					pKsDataRangeVideo->ConfigCaps.CropGranularityY = 1;
 					pKsDataRangeVideo->ConfigCaps.CropAlignX = 8;
 					pKsDataRangeVideo->ConfigCaps.CropAlignY = 1;
+					pKsDataRangeVideo->ConfigCaps.MaxOutputSize.cx = pAvailableFrameFormat[i].image_size.ulWidth;
+					pKsDataRangeVideo->ConfigCaps.MaxOutputSize.cy = pAvailableFrameFormat[i].image_size.ulHeight;
 					pKsDataRangeVideo->ConfigCaps.MinOutputSize.cx = pAvailableFrameFormat[i].image_size.ulWidth;
 					pKsDataRangeVideo->ConfigCaps.MinOutputSize.cy = pAvailableFrameFormat[i].image_size.ulHeight;
 					pKsDataRangeVideo->ConfigCaps.OutputGranularityX = 8;
@@ -1021,8 +1088,8 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 					pKsDataRangeVideo->ConfigCaps.ShrinkTapsY = 0;
 					pKsDataRangeVideo->ConfigCaps.MinFrameInterval = 333667;
 					pKsDataRangeVideo->ConfigCaps.MaxFrameInterval = 640000000;
-					pKsDataRangeVideo->ConfigCaps.MinBitsPerSecond = 8 * 2 * 30 * pAvailableFrameFormat[i].image_size.ulHeight * pAvailableFrameFormat[i].image_size.ulWidth;
-					pKsDataRangeVideo->ConfigCaps.MaxBitsPerSecond = 8 * 2 * 30 * pAvailableFrameFormat[i].image_size.ulHeight * pAvailableFrameFormat[i].image_size.ulWidth;
+					pKsDataRangeVideo->ConfigCaps.MinBitsPerSecond = 30 * pAvailableFrameFormat[i].image_size.ulFrameSize; // 30 FPS
+					pKsDataRangeVideo->ConfigCaps.MaxBitsPerSecond = 30 * pAvailableFrameFormat[i].image_size.ulFrameSize;
 					//////////////////////////////////////////////////////////////////////////
 					// KS_VIDEOINFOHEADER
 					pKsDataRangeVideo->VideoInfoHeader.rcSource.left = 0;
@@ -1042,23 +1109,21 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biPlanes = 1;
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biBitCount = 16; // пересмотреть в получаемой структуре
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biCompression = pAvailableFrameFormat[i].biCompression;
-					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biSizeImage = 2 * pAvailableFrameFormat[i].image_size.ulHeight * pAvailableFrameFormat[i].image_size.ulWidth;
+					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biSizeImage = pAvailableFrameFormat[i].image_size.ulFrameSize;
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biXPelsPerMeter = 0;
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biYPelsPerMeter = 0;
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biClrUsed = 0;
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biClrImportant = 0;
 					//////////////////////////////////////////////////////////////////////////
-
-					RtlCopyMemory(pCapturePinDataRangesFromCamera, (PKSDATARANGE)&pKsDataRangeVideo, sizeof(KSDATARANGE));
-					pCapturePinDataRangesFromCamera++;
+					//nMassOfPointer[i] = (int)pKsDataRangeVideo;
+					pMassOfPointer[i] = pKsDataRangeVideo;
 					pKsDataRangeVideo++;
 				}
-				pCapturePinDataRangesFromCamera = pCapturePinDataRangesFromCameraOriginal;
 				pKsDataRangeVideo = pKsDataRangeVideoOriginal;
 
 				//////////////////////////////////////////////////////////////////////////
 				// Выделение памяти для PKSPIN_DESCRIPTOR_EX pCaptureFilterPinDescriptorsFromCamera
-				pCaptureFilterPinDescriptorsFromCamera = (PKSPIN_DESCRIPTOR_EX)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSPIN_DESCRIPTOR_EX)*CAPTURE_FILTER_PIN_COUNT, '500T');
+				pCaptureFilterPinDescriptorsFromCamera = (PKSPIN_DESCRIPTOR_EX)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSPIN_DESCRIPTOR_EX)*CAPTURE_FILTER_PIN_COUNT, '100T');
 				pCaptureFilterPinDescriptorsFromCameraOriginal = pCaptureFilterPinDescriptorsFromCamera;
 				if (pCaptureFilterPinDescriptorsFromCamera != 0)
 				{
@@ -1074,12 +1139,12 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Interfaces = NULL;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.MediumsCount = 0;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Mediums = NULL;
-						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRangesCount = SIZEOF_ARRAY(pCapturePinDataRangesFromCamera);
-						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRanges = &pCapturePinDataRangesFromCamera;
+						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRangesCount = nTotalResolution;
+						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRanges = (PKSDATARANGE*)pMassOfPointer;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataFlow = KSPIN_DATAFLOW_OUT;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Communication = KSPIN_COMMUNICATION_BOTH;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Category = &PIN_CATEGORY_CAPTURE;
-						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Name = &g_PINNAME_VIDEO_CAPTURE;
+						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Name = &PIN_CATEGORY_CAPTURE;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Reserved = 0;
 						//////////////////////////////////////////////////////////////////////////
 #ifdef _X86_
@@ -1096,7 +1161,7 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 					pCaptureFilterPinDescriptorsFromCamera = pCaptureFilterPinDescriptorsFromCameraOriginal;
 					//////////////////////////////////////////////////////////////////////////
 					// Выделение памяти для PKSFILTER_DESCRIPTOR pCaptureFilterDescriptorFromCamera
-					pCaptureFilterDescriptorFromCamera = (PKSFILTER_DESCRIPTOR)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSFILTER_DESCRIPTOR), '600T');
+					pCaptureFilterDescriptorFromCamera = (PKSFILTER_DESCRIPTOR)ExAllocatePoolWithTag(NonPagedPool, sizeof(KSFILTER_DESCRIPTOR), '100T');
 					if (pCaptureFilterDescriptorFromCamera != NULL)
 					{
 						//////////////////////////////////////////////////////////////////////////
@@ -1106,12 +1171,13 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 						pCaptureFilterDescriptorFromCamera->Version = KSFILTER_DESCRIPTOR_VERSION;
 						pCaptureFilterDescriptorFromCamera->Flags = 0;
 						pCaptureFilterDescriptorFromCamera->ReferenceGuid = &KSNAME_Filter;
-						pCaptureFilterDescriptorFromCamera->PinDescriptorsCount = DEFINE_KSFILTER_PIN_DESCRIPTORS(pCaptureFilterPinDescriptorsFromCamera);
-						pCaptureFilterDescriptorFromCamera->PinDescriptorSize = DEFINE_KSFILTER_CATEGORIES(CaptureFilterCategories);
-
+						
 						pCaptureFilterDescriptorFromCamera->PinDescriptors = pCaptureFilterPinDescriptorsFromCamera;
-						pCaptureFilterDescriptorFromCamera->CategoriesCount = 0;
-						pCaptureFilterDescriptorFromCamera->Categories = NULL;
+						pCaptureFilterDescriptorFromCamera->PinDescriptorsCount = DEFINE_KSFILTER_PIN_DESCRIPTORS(CaptureFilterPinDescriptors);
+						pCaptureFilterDescriptorFromCamera->PinDescriptorSize = sizeof(KSPIN_DESCRIPTOR_EX);
+						
+						pCaptureFilterDescriptorFromCamera->CategoriesCount = DEFINE_KSFILTER_CATEGORIES(CaptureFilterCategories);
+						pCaptureFilterDescriptorFromCamera->Categories = CaptureFilterCategories;
 
 						pCaptureFilterDescriptorFromCamera->NodeDescriptorsCount = 0;
 						pCaptureFilterDescriptorFromCamera->NodeDescriptorSize = sizeof(KSNODE_DESCRIPTOR);
@@ -1120,31 +1186,11 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 						pCaptureFilterDescriptorFromCamera->Connections = NULL;
 						pCaptureFilterDescriptorFromCamera->ComponentId = NULL;
 						bIsDataFromCameraAvailable = true;
-
-						/*KsAcquireDevice(pdx->pKsDevice);
-						status = KsDeleteFilterFactory(pdx->pKsFilterFactory);
-						if(status == STATUS_SUCCESS)
-						{
-							status = KsCreateFilterFactory(pdx->pKsDevice->FunctionalDeviceObject, pCaptureFilterDescriptorFromCamera, L"GLOBAL", NULL, KSCREATE_ITEM_FREEONSTOP, NULL, NULL, &pdx->pKsFilterFactory);
-						}
-						KsReleaseDevice(pdx->pKsDevice);*/
-
-
-						status = KsEdit(pdx->pKsPin, &pdx->pKsPin->Descriptor, AVSHWS_POOLTAG);
-						if (NT_SUCCESS(status))
-						{
-							pdx->pKsPin->Descriptor = pCaptureFilterDescriptorFromCamera->PinDescriptors;
-							/*status = (pdx->pKsPin, &pdx->pKsPin->Descriptor->PinDescriptor, AVSHWS_POOLTAG);
-							if (NT_SUCCESS(status))
-							{
-								&pdx->pKsPin->Descriptor->PinDescriptor = pCaptureFilterPinDescriptorsFromCamera->PinDescriptor;
-							}*/
-						}
+						status = STATUS_SUCCESS;
 					}
 				}
 				//////////////////////////////////////////////////////////////////////////
 			}
-		}
 	}
 
 	if (bIsDataFromCameraAvailable == false)
@@ -1153,13 +1199,9 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 		{
 			ExFreePool(pCaptureFilterPinDescriptorsFromCamera);
 		}
-		if (pCapturePinDataRangesFromCamera != NULL)
-		{
-			ExFreePool(pCapturePinDataRangesFromCamera);
-		}
 		if (pKsDataRangeVideo != NULL)
 		{
-			ExFreePool(pCapturePinDataRangesFromCamera);
+			ExFreePool(pKsDataRangeVideo);
 		}
 		if (pCaptureFilterDescriptorFromCamera != NULL)
 		{
@@ -1167,10 +1209,6 @@ NTSTATUS GenerateVideoFormat(PDEVICE_EXTENTION pdx, PVOID systemBuffer, ULONG bu
 		}
 	}
 
-	if (pAvailableFrameFormat != NULL)
-	{
-		ExFreePool(pAvailableFrameFormat);
-	}
 	return status;
 }
 
@@ -1182,7 +1220,6 @@ VOID DriverUnload(PDRIVER_OBJECT DriverObject)
 	{
 		bIsDataFromCameraAvailable = false;
 		ExFreePool(pCaptureFilterPinDescriptorsFromCamera);
-		ExFreePool(pCapturePinDataRangesFromCamera);
 		ExFreePool(pCaptureFilterDescriptorFromCamera);
 	}
 
@@ -1221,23 +1258,15 @@ NTSTATUS DispatchDeviceContorl(IN PDEVICE_OBJECT fdo, IN PIRP irp)
 				status = AddBufferToQueue((PDEVICE_EXTENTION)fdo->DeviceExtension, irp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
 			}
 			break;
-			IOCTL_CHANGER_BASE
+		/*
+		// Recieve resolution from app
 		case IOCTL_SEND_BUFFER_FORMAT:
 			if (stack->Parameters.DeviceIoControl.InputBufferLength > 0)
 			{
 				status = GenerateVideoFormat((PDEVICE_EXTENTION)fdo->DeviceExtension, irp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
 			}
-			/*
-			m_HardwareSimulation -> Start (
-            m_ImageSynth,
-            m_VideoInfoHeader -> AvgTimePerFrame,
-            m_VideoInfoHeader -> bmiHeader.biWidth,
-            ABS (m_VideoInfoHeader -> bmiHeader.biHeight),
-            m_VideoInfoHeader -> bmiHeader.biSizeImage
-            );
-			*/
 			break;
-
+			*/
 		default:
 			status = STATUS_UNSUCCESSFUL;
 			break;

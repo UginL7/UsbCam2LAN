@@ -36,7 +36,6 @@ struct camera_frame_format_info
 	char szVIH[16] = { 0 };
 	bool isCSCNeeded = false;
 	bool isDecoderNeeded = false;
-	ULONG lSampleSize;
 	GUID majorType;
 	GUID subType;	
 	GUID formatType;

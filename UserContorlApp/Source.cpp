@@ -185,7 +185,7 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	pSG_media_type.formattype = FORMAT_VideoInfo;
 	pSG_media_type.bFixedSizeSamples = TRUE;
 	pSG_media_type.cbFormat = 88;
-	pSG_media_type.lSampleSize = SelectedResolution.lSampleSize;
+	pSG_media_type.lSampleSize = SelectedResolution.image_size.ulFrameSize;
 	pSG_media_type.bTemporalCompression = FALSE;
 
 	VIDEOINFOHEADER pSG_video_header_format;
@@ -195,7 +195,7 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	pSG_video_header_format.bmiHeader.biHeight = SelectedResolution.image_size.ulHeight;
 	pSG_video_header_format.bmiHeader.biPlanes = 1;
 	pSG_video_header_format.bmiHeader.biBitCount = 24;
-	pSG_video_header_format.bmiHeader.biSizeImage = SelectedResolution.lSampleSize;
+	pSG_video_header_format.bmiHeader.biSizeImage = SelectedResolution.image_size.ulFrameSize;
 	pSG_media_type.pbFormat = (BYTE *)&pSG_video_header_format;
 
 	// получение указателя ISampleGrabber указание ему медиатипа 
@@ -265,7 +265,7 @@ void TranslateBMPFile()
 	FILE *pFile = fopen("bike240.bmp", "rb");
 	rewind(pFile);
 
-	pOriginal = (char*)malloc(SelectedResolution.lSampleSize);
+	pOriginal = (char*)malloc(SelectedResolution.image_size.ulFrameSize);
 	if (pOriginal == nullptr)
 	{
 		printf("Not enough memory!\n");
@@ -275,7 +275,7 @@ void TranslateBMPFile()
 	strset(pOriginal, '0');
 
 	fseek(pFile, 54, SEEK_SET);
-	size_t nBuffSize = fread(pOriginal, sizeof(char), SelectedResolution.lSampleSize, pFile);
+	size_t nBuffSize = fread(pOriginal, sizeof(char), SelectedResolution.image_size.ulFrameSize, pFile);
 	fclose(pFile);
 
 	unsigned long nCounter = 0;
@@ -666,9 +666,10 @@ int GetCameraResolution()
 
 int main()
 {
+	DWORD dw = sizeof(GUID);
  	SetConsoleCP(1251);
  	SetConsoleOutputCP(1251);
-
+	return 0;
 	int nRet = 0;
 	nRet = GetCameraResolution();
 	nRet = TranslateWebCamStream();

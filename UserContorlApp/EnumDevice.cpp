@@ -161,7 +161,6 @@ int CEnumDevice::GetDeviceAvailableResolution(camera_frame_format_info *pCamReso
 											memset((void*)&pCamRes, 0, sizeof(camera_frame_format_info));
 											pCamRes.majorType = pMT->majortype;
 											pCamRes.subType = pMT->subtype;
-											pCamRes.lSampleSize = pMT->lSampleSize;
 											pCamRes.formatType = pMT->formattype;
 											pCamRes.image_size.ulWidth = pVIH->bmiHeader.biWidth;
 											pCamRes.image_size.ulHeight = pVIH->bmiHeader.biHeight;
@@ -190,7 +189,6 @@ int CEnumDevice::GetDeviceAvailableResolution(camera_frame_format_info *pCamReso
 											memset((void*)&pCamRes, 0, sizeof(camera_frame_format_info));
 											pCamRes.majorType = pMT->majortype;
 											pCamRes.subType = pMT->subtype;
-											pCamRes.lSampleSize = pMT->lSampleSize;
 											pCamRes.formatType = pMT->formattype;
 											pCamRes.image_size.ulWidth = pVIH2->bmiHeader.biWidth;
 											pCamRes.image_size.ulHeight = pVIH2->bmiHeader.biHeight;

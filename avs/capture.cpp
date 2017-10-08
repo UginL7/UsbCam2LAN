@@ -232,8 +232,6 @@ Return Value:
                 Framing -> FramingItem [0].PhysicalRange.Stepping = 
                     Framing -> FramingItem [0].FramingRange.Range.Stepping =
                     0;
-
-				pdx->pKsPin = reinterpret_cast<PKSPIN>(Pin);
             }
 
         }
@@ -1685,10 +1683,9 @@ FormatRGB24Bpp_Capture = {
 		0,                                      // Flags - ignored
 		0,                                      // SampleSize - ignored
 		0,                                      // Reserved - must be 0
-		STATICGUIDOF(KSDATAFORMAT_TYPE_VIDEO), // aka. MEDIATYPE_Video
-		0x32595559, 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b,
-		0x71,     //aka. MEDIASUBTYPE_YUY2,
-		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO) // aka. FORMAT_VideoInfo
+		STATICGUIDOF(KSDATAFORMAT_TYPE_VIDEO),     // aka. MEDIATYPE_Video
+		0xe436eb7d, 0x524f, 0x11ce, 0x9f, 0x53, 0x00, 0x20,	0xaf, 0x0b, 0xa7, 0x70,                 // aka. MEDIASUBTYPE_RGB24,
+		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO) // aka. FORMAT_VideoInf
 	},
 
 	TRUE,               // BOOL,  bFixedSizeSamples (all samples same size?)
@@ -1700,8 +1697,8 @@ FormatRGB24Bpp_Capture = {
 		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO), // GUID
 		KS_AnalogVideo_None,    // This is a digital sensor
 		D_CAP_X, D_CAP_Y,       // InputSize, (the inherent size of the incoming 		signal with every digitized pixel unique)
-		D_CAP_X, D_CAP_Y,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
-		D_CAP_X, D_CAP_Y,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
+		VIDEO_MIN_WIDTH, VIDEO_MIN_HEIGHT,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
+		VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
 		1,              // CropGranularityX, granularity of cropping size
 		1,              // CropGranularityY
 		1,              // CropAlignX, alignment of cropping rect 
@@ -1845,8 +1842,8 @@ FormatYUY2_Capture = {
 		STATICGUIDOF(KSDATAFORMAT_SPECIFIER_VIDEOINFO), // GUID
 		KS_AnalogVideo_None,    // This is a digital sensor
 		D_CAP_X, D_CAP_Y,       // InputSize, (the inherent size of the incoming 		signal with every digitized pixel unique)
-		D_CAP_X, D_CAP_Y,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
-		D_CAP_X, D_CAP_Y,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
+		VIDEO_MIN_WIDTH, VIDEO_MIN_HEIGHT,       // MinCroppingSize, smallest rcSrc cropping rect 	allowed
+		VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT,       // MaxCroppingSize, largest  rcSrc cropping rect 	allowed
 		1,              // CropGranularityX, granularity of cropping size
 		1,              // CropGranularityY
 		1,              // CropAlignX, alignment of cropping rect 

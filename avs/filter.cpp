@@ -104,8 +104,7 @@ Return Value:
     DESCRIPTOR AND DISPATCH LAYOUT
 
 **************************************************************************/
-
-GUID g_PINNAME_VIDEO_CAPTURE = {STATIC_PINNAME_VIDEO_CAPTURE};
+GUID g_PINNAME_VIDEO_CAPTURE = { STATIC_PINNAME_VIDEO_CAPTURE };
 
 //
 // CaptureFilterCategories:
