@@ -1025,11 +1025,11 @@ NTSTATUS GenerateVideoFormat_Static(PVOID systemBuffer, ULONG buffSize)
 	PKSPIN_DESCRIPTOR_EX pCaptureFilterPinDescriptorsFromCameraOriginal = NULL;
 	struct camera_frame_format_info *pAvailableFrameFormat = (struct camera_frame_format_info *)systemBuffer;
 	int nTotalResolution = buffSize / sizeof(camera_frame_format_info);
-	PVOID *pMassOfPointer = NULL;
+	PKSDATARANGE *pMassOfPointer = NULL;
 //	int *nMassOfPointer = NULL;
 
 //	nMassOfPointer = (int*)ExAllocatePoolWithTag(NonPagedPool, (nTotalResolution * sizeof(int)), '100T');
-	pMassOfPointer = (PVOID *)ExAllocatePoolWithTag(NonPagedPool, (nTotalResolution * sizeof(PVOID *)), '100T');
+	pMassOfPointer = (PKSDATARANGE *)ExAllocatePoolWithTag(NonPagedPool, (nTotalResolution * sizeof(PKSDATARANGE)), '100T');
 	if (pMassOfPointer == NULL)
 	{
 		return STATUS_INSUFFICIENT_RESOURCES;
@@ -1116,7 +1116,7 @@ NTSTATUS GenerateVideoFormat_Static(PVOID systemBuffer, ULONG buffSize)
 					pKsDataRangeVideo->VideoInfoHeader.bmiHeader.biClrImportant = 0;
 					//////////////////////////////////////////////////////////////////////////
 					//nMassOfPointer[i] = (int)pKsDataRangeVideo;
-					pMassOfPointer[i] = pKsDataRangeVideo;
+					pMassOfPointer[i] = (PKSDATARANGE)pKsDataRangeVideo;
 					pKsDataRangeVideo++;
 				}
 				pKsDataRangeVideo = pKsDataRangeVideoOriginal;
@@ -1140,7 +1140,7 @@ NTSTATUS GenerateVideoFormat_Static(PVOID systemBuffer, ULONG buffSize)
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.MediumsCount = 0;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Mediums = NULL;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRangesCount = nTotalResolution;
-						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRanges = (PKSDATARANGE*)pMassOfPointer;
+						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataRanges = pMassOfPointer;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.DataFlow = KSPIN_DATAFLOW_OUT;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Communication = KSPIN_COMMUNICATION_BOTH;
 						pCaptureFilterPinDescriptorsFromCamera->PinDescriptor.Category = &PIN_CATEGORY_CAPTURE;
