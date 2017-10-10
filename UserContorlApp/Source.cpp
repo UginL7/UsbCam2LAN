@@ -5,6 +5,7 @@
 #include <dvdmedia.h>
 #include <wmsdkidl.h>
 #include <SetupAPI.h>
+
 #include "EnumDevice.h"
 #include "SampleGrabber.h"
 #include "CallbackObject.h"
@@ -14,15 +15,10 @@
 #pragma comment(lib, "Strmiids.lib")
 #pragma comment(lib, "Quartz.lib")
 
-#define VBOX TRUE
-
-#if VBOX
-WCHAR wszCamName[] = L"VirtualBox Webcam - Logitech QuickCam Pro 5000";
-#else
-WCHAR wszCamName[] = L"Logitech QuickCam Pro 5000";
-#endif
+#define VBOX FALSE
 
 struct camera_frame_format_info SelectedResolution;
+struct device_param_info DevInfo;
 
 static
 const
@@ -166,8 +162,8 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	CHECK_HR(hr, "Can't SetFilterGraph ");
 
  // Получение указателя на камеру и добалвение фильтра в грфа
-	CComPtr<IBaseFilter> pCamera = CreateFilterByName(wszCamName, CLSID_VideoCaptureSource);
-	hr = pGraph->AddFilter(pCamera, wszCamName);
+	CComPtr<IBaseFilter> pCamera = CreateFilterByName(DevInfo.wszName, CLSID_VideoCaptureSource);
+	hr = pGraph->AddFilter(pCamera, DevInfo.wszName);
 	CHECK_HR(hr, "Can't add camera to graph");
 
 	// получение укзателя на SampleGrabber и добавление фильтра в граф
@@ -178,15 +174,15 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	CHECK_HR(hr, "Can't add SampleGrabber to graph");
 
 	// заполнение структур медиатипа и видеозаголовка
-	AM_MEDIA_TYPE pSG_media_type;
-	ZeroMemory(&pSG_media_type, sizeof(AM_MEDIA_TYPE));
-	pSG_media_type.majortype = MEDIATYPE_Video;
-	pSG_media_type.subtype = MEDIASUBTYPE_RGB24;
-	pSG_media_type.formattype = FORMAT_VideoInfo;
-	pSG_media_type.bFixedSizeSamples = TRUE;
-	pSG_media_type.cbFormat = 88;
-	pSG_media_type.lSampleSize = SelectedResolution.image_size.ulFrameSize;
-	pSG_media_type.bTemporalCompression = FALSE;
+	AM_MEDIA_TYPE SG_media_type;
+	ZeroMemory(&SG_media_type, sizeof(AM_MEDIA_TYPE));
+	SG_media_type.majortype = MEDIATYPE_Video;
+	SG_media_type.subtype = MEDIASUBTYPE_RGB24;
+	SG_media_type.formattype = FORMAT_VideoInfo;
+	SG_media_type.bFixedSizeSamples = TRUE;
+	SG_media_type.cbFormat = 88;
+	SG_media_type.lSampleSize = SelectedResolution.image_size.ulFrameSize;
+	SG_media_type.bTemporalCompression = FALSE;
 
 	VIDEOINFOHEADER pSG_video_header_format;
 	ZeroMemory(&pSG_video_header_format, sizeof(VIDEOINFOHEADER));
@@ -196,29 +192,48 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	pSG_video_header_format.bmiHeader.biPlanes = 1;
 	pSG_video_header_format.bmiHeader.biBitCount = 24;
 	pSG_video_header_format.bmiHeader.biSizeImage = SelectedResolution.image_size.ulFrameSize;
-	pSG_media_type.pbFormat = (BYTE *)&pSG_video_header_format;
+	SG_media_type.pbFormat = (BYTE *)&pSG_video_header_format;
+	
+//////////////////////////////////////////////////////////////////////////
+	IAMStreamConfig *pConfig = NULL;
+	hr = pBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, 0, pCamera,  IID_IAMStreamConfig, (void**)&pConfig);
+	int iCount = 0, iSize = 0;
+	hr = pConfig->GetNumberOfCapabilities(&iCount, &iSize);
+	AM_MEDIA_TYPE *pSG_media_type;
+	// Check the size to make sure we pass in the correct structure.
+	if (iSize == sizeof(VIDEO_STREAM_CONFIG_CAPS))
+	{
+		// Use the video capabilities structure.
+
+		VIDEO_STREAM_CONFIG_CAPS scc;
+
+		for (int iFormat = 0; iFormat < iCount; iFormat++)
+		{
+			hr = pConfig->GetStreamCaps(iFormat, &pSG_media_type, (BYTE*)&scc);
+			if (SUCCEEDED(hr))
+			{
+				if (scc.InputSize.cx == SelectedResolution.image_size.ulWidth && scc.InputSize.cy == SelectedResolution.image_size.ulHeight)
+				{
+					CComQIPtr<IAMStreamConfig, &IID_IAMStreamConfig> isc(GetPin(pCamera, L"Запись"));
+					hr = isc->SetFormat(pSG_media_type);
+					CHECK_HR(hr, "Can't set camera work resolution");
+					break;
+				}
+			}
+		}
+	}
+//////////////////////////////////////////////////////////////////////////
 
 	// получение указателя ISampleGrabber указание ему медиатипа 
 	CComQIPtr<ISampleGrabber, &IID_ISampleGrabber> pSG_sample_grabber(pSGrabber);
-	hr = pSG_sample_grabber->SetMediaType(&pSG_media_type);
+	hr = pSG_sample_grabber->SetMediaType(&SG_media_type);
 	CHECK_HR(hr, "Can't set media type to sample grabber");
+	/////////////////////////
+	// Вызов callback - работа  с потоком (0 - SampleCB, 1 - BufferCB)
+	hr = pSG_sample_grabber->SetCallback(new CCallbackObject, 0);
+	CHECK_HR(hr, _T("Can't set callback SampleCB"));
 
-	// Получение указателя для декомпрессорa и добавление его в фильтр граф
-	CComPtr<IBaseFilter> pDecompressor;
-#if VBOX
-	hr = pDecompressor.CoCreateInstance(CLSID_MjpegDec);
-	CHECK_HR(hr, "Can't create MJPEG Decompressor");
-	hr = pGraph->AddFilter(pDecompressor, L"MJPEG Decompressor");
-	CHECK_HR(hr, "Can't add MJPEG Decompressor to graph");
 
-#else
-	hr = pDecompressor.CoCreateInstance(CLSID_AVIDec);
-	CHECK_HR(hr, "Can't create AVI Decompressor");
-	hr = pGraph->AddFilter(pDecompressor, L"AVI Decompressor");
-	CHECK_HR(hr, "Can't add AVI Decompressor to graph");
-
-#endif
-	
 	// Получение указателя для Color Space Converter и добавление его в фильтр граф
 	CComPtr<IBaseFilter> pColorSpaceConverter;
 	hr = pColorSpaceConverter.CoCreateInstance(CLSID_Colour);
@@ -233,25 +248,35 @@ HRESULT BuildGraph(IGraphBuilder *pGraph)
 	hr = pGraph->AddFilter(pVideoRend, L"Video Renderer");
 	CHECK_HR(hr, "Can't add Video Renderer to graph");
 	
+
+
+#if VBOX
 	// Последовательное соединение Источник(камера)->Декомпрессор->SampleGrabber(установка перехвата)->ColorSpaceConverter->VideoRenderer
-	
-	hr = pGraph->ConnectDirect(GetPin(pCamera, L"Запись"), GetPin(pDecompressor, L"XForm In"), NULL);
-	CHECK_HR(hr, _T("Can't connect Camera_Out and MJPEG_Decompressor_In"));
-	
-	hr = pGraph->ConnectDirect(GetPin(pDecompressor, L"XForm Out"), GetPin(pSGrabber, L"Input"), NULL);
-	CHECK_HR(hr, _T("Can't connect MJPEG_Decompressor_Out SmapleGrabber_In"));
+	//add MJPEG Decompressor
+	CComPtr<IBaseFilter> pMJPEGDecompressor;
+	hr = pMJPEGDecompressor.CoCreateInstance(CLSID_MjpegDec);
+	CHECK_HR(hr, _T("Can't create MJPEG Decompressor"));
+	hr = pGraph->AddFilter(pMJPEGDecompressor, L"MJPEG Decompressor");
+	CHECK_HR(hr, _T("Can't add MJPEG Decompressor to graph"));
 
-	/////////////////////////
-	// Вызов callback - работа  с потоком
-	/////////////////////////
-	CComQIPtr<ISampleGrabber, &IID_ISampleGrabber> pSampleGrabber_isg(pSGrabber);
-	// Вызов ф-ции (0 - SampleCB, 1 - BufferCB) для работы с потоком
-	hr = pSampleGrabber_isg->SetCallback(new CCallbackObject, 0);
-	CHECK_HR(hr, _T("Can't set callback SampleCB"));
+	//connect VirtualBox Webcam - Logitech QuickCam Pro 5000 and MJPEG Decompressor
+	hr = pGraph->ConnectDirect(GetPin(pCamera, L"Запись"), GetPin(pMJPEGDecompressor, L"XForm In"), NULL);
+	CHECK_HR(hr, _T("Can't connect Camera_Out and MJPEG Decompressor"));
 
+	MessageBox(NULL, "Error!", "Error!", MB_OK);
+	//connect MJPEG Decompressor and SampleGrabber
+	hr = pGraph->ConnectDirect(GetPin(pMJPEGDecompressor, L"XForm Out"), GetPin(pSGrabber, L"Input"), NULL);
+	CHECK_HR(hr, _T("Can't connect MJPEG Decompressor and SampleGrabber"));
+	
+#else
+	// Последовательное соединение Источник(камера)->SampleGrabber(установка перехвата)->ColorSpaceConverter->VideoRenderer
+	hr = pGraph->ConnectDirect(GetPin(pCamera, L"Запись"), GetPin(pSGrabber, L"Input"), NULL);
+	CHECK_HR(hr, _T("Can't connect Camera_Out SmapleGrabber_In"));
+#endif
+	
+	//connect SampleGrabber and Color Space Converter
 	hr = pGraph->ConnectDirect(GetPin(pSGrabber, L"Output"), GetPin(pColorSpaceConverter, L"Input"), NULL);
-	CHECK_HR(hr, _T("Can't connect SmapleGrabber_Out CSC_In"));
-
+	CHECK_HR(hr, _T("Can't connect SampleGrabber and Color Space Converter"));
 	hr = pGraph->ConnectDirect(GetPin(pColorSpaceConverter, L"XForm Out"), GetPin(pVideoRend, L"VMR Input0"), NULL);
 	CHECK_HR(hr, "Can't connect CSC and Video Renderer");
 
@@ -357,12 +382,7 @@ int TranslateWebCamStream()
 	CComPtr<IGraphBuilder> graph;
 	graph.CoCreateInstance(CLSID_FilterGraph);
 
-#if VBOX
-	printf("In Virtual Box\n");
-#else
-	printf("In PC\n");
-#endif
-	wprintf(L"Camera Name = %s\nResolution w=%d\th=%d\n", wszCamName, SelectedResolution.image_size.ulWidth, SelectedResolution.image_size.ulHeight);
+	wprintf(L"Camera Name = %s\nResolution w=%d\th=%d\n", DevInfo.wszName, SelectedResolution.image_size.ulWidth, SelectedResolution.image_size.ulHeight);
 	system("pause");
 	printf("Building graph...\n");
 	HRESULT hr = BuildGraph(graph);
@@ -506,14 +526,9 @@ void RestartDevice(char *szSvcRestart)
 int GetCameraResolution()
 {
 	device_param_info *pAvailableDevices = nullptr;
-	device_param_info *pDecompressor = nullptr;
-	device_param_info *pColorSC = nullptr;
-	device_param_info *pRenderer = nullptr;
 	camera_frame_format_info *pAvailableResolution = nullptr;
-	device_param_info DevInfo;
-	camera_frame_format_info FrameRes;
-	void *pResOriginal;
-	void *pDevOriginal;
+	camera_frame_format_info *pResOriginal;
+	device_param_info *pDevOriginal;
 	int nSizeOfDeviceArray = 0;
 	int nSizeOfResolutionArray = 0;
 	int nSizeNeeded = 0;
@@ -577,7 +592,7 @@ int GetCameraResolution()
 		// выбор камеры для работы
 		printf("Input camera number : ");
 		scanf_s("%d", &nCameraChoise);
-		pAvailableDevices = (device_param_info*)pDevOriginal + nCameraChoise - 1;
+		pAvailableDevices = pDevOriginal + nCameraChoise - 1;
 		DevInfo = pAvailableDevices[0];
 
 		// Получение количества разрешений для выбранной камеры 
@@ -594,18 +609,16 @@ int GetCameraResolution()
 		// Перечисление для выбранной камеры разрешений и форматов картинки
 		memset(pAvailableResolution, 0, nSizeOfResolutionArray * sizeof(camera_frame_format_info));
 		pEnumDevice->GetDeviceAvailableResolution(pAvailableResolution, DevInfo.pBaseFilter);
+		pResOriginal = pAvailableResolution;
 		for (int i = 0; i < nSizeOfResolutionArray; i++)
 		{
-			FrameRes = pAvailableResolution[0];
-			printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", i + 1, FrameRes.image_size.ulWidth, FrameRes.image_size.ulHeight, FrameRes.image_size.usBitCount, FrameRes.szFormat, FrameRes.szVIH);
-			pAvailableResolution++;
+			printf("%d)\twidth = %d\theight=%d\tbit color=%d\tcompressed=%s\tVIH=%s\n", i + 1, pAvailableResolution[i].image_size.ulWidth, pAvailableResolution[i].image_size.ulHeight, pAvailableResolution[i].image_size.usBitCount, pAvailableResolution[i].szFormat, pAvailableResolution[i].szVIH);
 		}
 
 		// выбор разрешения для работы
 		printf("Input resolution number : ");
 		scanf_s("%d", &nResolutionChoise);
 		pAvailableResolution = (camera_frame_format_info*)pResOriginal + nResolutionChoise - 1;
-/*		FrameRes = pAvailableResolution[0];*/
 		SelectedResolution = pAvailableResolution[0];
 
 		// отправка данных в драйвер
@@ -617,21 +630,6 @@ int GetCameraResolution()
 		break;
 	}
 
-	if (pDecompressor != nullptr)
-	{
-		pDecompressor->pBaseFilter->Release();
-		free(pDecompressor);
-	}
-	if (pColorSC != nullptr)
-	{
-		pColorSC->pBaseFilter->Release();
-		free(pColorSC);
-	}
-	if (pRenderer != nullptr)
-	{
-		pRenderer->pBaseFilter->Release();
-		free(pRenderer);
-	}
 
 	if (pAvailableResolution != nullptr)
 	{
@@ -669,7 +667,6 @@ int main()
 	DWORD dw = sizeof(GUID);
  	SetConsoleCP(1251);
  	SetConsoleOutputCP(1251);
-	return 0;
 	int nRet = 0;
 	nRet = GetCameraResolution();
 	nRet = TranslateWebCamStream();

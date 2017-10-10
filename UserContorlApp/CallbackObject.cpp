@@ -3,7 +3,7 @@
 CCallbackObject::CCallbackObject()
 {
 	m_Ref = 0;
-	hDevice = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+ 	hDevice = CreateFile("\\\\.\\VideoControl", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (hDevice == INVALID_HANDLE_VALUE)
 	{
 		DWORD dwError = GetLastError();
